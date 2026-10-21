@@ -34,10 +34,25 @@ public sealed class Lead
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }
 
+public sealed class RecommendationReview
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid LeadId { get; set; }
+    public string RecommendationKey { get; set; } = "";
+    public string RecommendationText { get; set; } = "";
+    public Guid ReviewerUserId { get; set; }
+    public string ReviewerName { get; set; } = "";
+    public string ReviewerEmail { get; set; } = "";
+    public DateTime ReviewedAtUtc { get; set; } = DateTime.UtcNow;
+
+    public Lead? Lead { get; set; }
+}
+
 public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : DbContext(options)
 {
     public DbSet<DemoUser> Users => Set<DemoUser>();
     public DbSet<Lead> Leads => Set<Lead>();
+    public DbSet<RecommendationReview> RecommendationReviews => Set<RecommendationReview>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -47,6 +62,17 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         modelBuilder.Entity<Lead>().Property(x => x.Status).HasConversion<string>();
         modelBuilder.Entity<Lead>().HasIndex(x => x.Status);
         modelBuilder.Entity<Lead>().HasIndex(x => x.NextFollowUpUtc);
+
+        modelBuilder.Entity<RecommendationReview>().Property(x => x.RecommendationKey).HasMaxLength(120);
+        modelBuilder.Entity<RecommendationReview>().Property(x => x.RecommendationText).HasMaxLength(1000);
+        modelBuilder.Entity<RecommendationReview>().Property(x => x.ReviewerName).HasMaxLength(120);
+        modelBuilder.Entity<RecommendationReview>().Property(x => x.ReviewerEmail).HasMaxLength(254);
+        modelBuilder.Entity<RecommendationReview>().HasIndex(x => new { x.LeadId, x.ReviewedAtUtc });
+        modelBuilder.Entity<RecommendationReview>()
+            .HasOne(x => x.Lead)
+            .WithMany()
+            .HasForeignKey(x => x.LeadId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
 

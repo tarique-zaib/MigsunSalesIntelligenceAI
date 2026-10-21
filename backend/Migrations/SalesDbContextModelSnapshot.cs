@@ -121,6 +121,59 @@ namespace MigsunSales.Api.Migrations
 
                     b.ToTable("Leads");
                 });
+
+            modelBuilder.Entity("MigsunSales.Api.RecommendationReview", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("LeadId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RecommendationKey")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("RecommendationText")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime>("ReviewedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReviewerEmail")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<string>("ReviewerName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<Guid>("ReviewerUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LeadId", "ReviewedAtUtc");
+
+                    b.ToTable("RecommendationReviews");
+                });
+
+            modelBuilder.Entity("MigsunSales.Api.RecommendationReview", b =>
+                {
+                    b.HasOne("MigsunSales.Api.Lead", "Lead")
+                        .WithMany()
+                        .HasForeignKey("LeadId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Lead");
+                });
 #pragma warning restore 612, 618
         }
     }

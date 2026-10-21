@@ -189,6 +189,92 @@ app.MapGet("/api/leads", async (string? search, SalesDbContext db) =>
     return Results.Ok(leads.Select(LeadDto.From));
 }).RequireAuthorization("LeadRead");
 
+
+app.MapGet("/api/intelligence/leads", async (
+    string? priority,
+    string? followUpState,
+    int? limit,
+    SalesDbContext db) =>
+{
+    var leads = await db.Leads
+        .AsNoTracking()
+        .ToListAsync();
+
+    var now = DateTime.UtcNow;
+
+    var results = leads
+        .Select(lead => LeadIntelligence.Evaluate(lead, now))
+        .AsEnumerable();
+
+    if (!string.IsNullOrWhiteSpace(priority))
+    {
+        var normalizedPriority = priority.Trim();
+
+        if (!new[] { "High", "Medium", "Low" }
+            .Contains(normalizedPriority, StringComparer.OrdinalIgnoreCase))
+        {
+            return Results.BadRequest(new
+            {
+                message = "Priority must be High, Medium, or Low."
+            });
+        }
+
+        results = results.Where(x =>
+            string.Equals(
+                x.Priority,
+                normalizedPriority,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    if (!string.IsNullOrWhiteSpace(followUpState))
+    {
+        var normalizedState = followUpState.Trim();
+
+        var allowedStates = new[]
+        {
+            "Overdue",
+            "Due within 24 hours",
+            "Scheduled",
+            "Not scheduled",
+            "Not required — lead is closed"
+        };
+
+        if (!allowedStates.Contains(normalizedState, StringComparer.OrdinalIgnoreCase))
+        {
+            return Results.BadRequest(new
+            {
+                message = "Unsupported follow-up state."
+            });
+        }
+
+        results = results.Where(x =>
+            string.Equals(
+                x.FollowUpState,
+                normalizedState,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    var take = Math.Clamp(limit ?? 100, 1, 200);
+
+    var ranked = results
+        .OrderByDescending(x => x.FollowUpState == "Overdue")
+        .ThenByDescending(x => x.Score)
+        .ThenBy(x => x.NextFollowUpUtc ?? DateTime.MaxValue)
+        .Take(take)
+        .ToArray();
+
+    return Results.Ok(new
+    {
+        generatedAtUtc = now,
+        scoringMethod = "Existing deterministic LeadScoring formula",
+        fictionalData = true,
+        totalReturned = ranked.Length,
+        leads = ranked
+    });
+})
+.RequireAuthorization("LeadRead");
+
+
 app.MapGet("/api/leads/{id:guid}", async (Guid id, SalesDbContext db) =>
 {
     var lead = await db.Leads.AsNoTracking().FirstOrDefaultAsync(l => l.Id == id);
@@ -359,6 +445,96 @@ app.MapPatch("/api/admin/users/{id:guid}/active", async (
 })
 .RequireAuthorization("AdminOnly");
 
+app.MapGet("/api/intelligence/leads/{id:guid}/reviews", async (
+    Guid id,
+    SalesDbContext db) =>
+{
+    var leadExists = await db.Leads.AsNoTracking().AnyAsync(l => l.Id == id);
+    if (!leadExists)
+        return Results.NotFound(new { message = "Lead not found." });
+
+    var reviews = await db.RecommendationReviews
+        .AsNoTracking()
+        .Where(r => r.LeadId == id)
+        .OrderByDescending(r => r.ReviewedAtUtc)
+        .Select(r => new
+        {
+            r.Id,
+            r.LeadId,
+            r.RecommendationKey,
+            r.RecommendationText,
+            r.ReviewerUserId,
+            r.ReviewerName,
+            r.ReviewerEmail,
+            r.ReviewedAtUtc
+        })
+        .ToListAsync();
+
+    return Results.Ok(reviews);
+})
+.RequireAuthorization("LeadRead");
+
+app.MapPost("/api/intelligence/leads/{id:guid}/reviews", async (
+    Guid id,
+    CreateRecommendationReviewRequest request,
+    SalesDbContext db,
+    ClaimsPrincipal principal) =>
+{
+    var lead = await db.Leads.AsNoTracking().FirstOrDefaultAsync(l => l.Id == id);
+    if (lead is null)
+        return Results.NotFound(new { message = "Lead not found." });
+
+    var key = request.RecommendationKey?.Trim();
+    var text = request.RecommendationText?.Trim();
+    if (string.IsNullOrWhiteSpace(key) || key.Length > 120 ||
+        string.IsNullOrWhiteSpace(text) || text.Length > 1000)
+    {
+        return Results.BadRequest(new
+        {
+            message = "Recommendation key is required (max 120 characters) and recommendation text is required (max 1000 characters)."
+        });
+    }
+
+    var reviewerIdValue = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (!Guid.TryParse(reviewerIdValue, out var reviewerId))
+        return Results.Unauthorized();
+
+    var reviewerName = principal.Identity?.Name?.Trim();
+    var reviewerEmail = principal.FindFirstValue(ClaimTypes.Email)?.Trim();
+    if (string.IsNullOrWhiteSpace(reviewerName) || string.IsNullOrWhiteSpace(reviewerEmail))
+        return Results.Unauthorized();
+
+    var review = new RecommendationReview
+    {
+        LeadId = id,
+        RecommendationKey = key,
+        RecommendationText = text,
+        ReviewerUserId = reviewerId,
+        ReviewerName = reviewerName,
+        ReviewerEmail = reviewerEmail,
+        ReviewedAtUtc = DateTime.UtcNow
+    };
+
+    db.RecommendationReviews.Add(review);
+    await db.SaveChangesAsync();
+
+    return Results.Created(
+        $"/api/intelligence/leads/{id}/reviews/{review.Id}",
+        new
+        {
+            review.Id,
+            review.LeadId,
+            review.RecommendationKey,
+            review.RecommendationText,
+            review.ReviewerUserId,
+            review.ReviewerName,
+            review.ReviewerEmail,
+            review.ReviewedAtUtc
+        });
+})
+.RequireAuthorization("LeadWrite");
+
+
 app.Run();
 
 public record LoginRequest(string Email, string Password);
@@ -369,6 +545,7 @@ public record CreateLeadRequest(string FullName, string Email, string Phone, str
 public record UpdateLeadRequest(string Status, string? AssignedTo, string? Notes, DateTime? NextFollowUpUtc);
 public record CreateUserRequest(string? FullName, string? Email, string? Password, string? Role);
 public record SetUserActiveRequest(bool IsActive);
+public record CreateRecommendationReviewRequest(string? RecommendationKey, string? RecommendationText);
 
 public static class PasswordHasher
 {

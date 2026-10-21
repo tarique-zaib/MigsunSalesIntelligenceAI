@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import UserManagement from "./UserManagement";
 import {
   Activity,
+  BrainCircuit,
   AlertCircle,
   ArrowDownRight,
   ArrowUpRight,
@@ -30,6 +31,8 @@ import {
   type Analytics,
   type Dashboard,
   type Lead,
+  type LeadIntelligence,
+  type LeadIntelligenceResponse,
   type NewLead,
 } from "./api";
 
@@ -57,8 +60,20 @@ type Page =
   | "Pipeline"
   | "AI Copilot"
   | "Analytics"
+  | "Sales Intelligence"
   | "User Management";
 type User = { name: string; email: string; role: string };
+
+type RecommendationReview = {
+  id: string;
+  leadId: string;
+  recommendationKey: string;
+  recommendationText: string;
+  reviewerUserId: string;
+  reviewerName: string;
+  reviewerEmail: string;
+  reviewedAtUtc: string;
+};
 
 function money(value: number | null) {
   return value == null ? "Not specified" : `₹${value.toLocaleString("en-IN")}L`;
@@ -94,6 +109,16 @@ export default function App() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [intelligence, setIntelligence] = useState<LeadIntelligence[]>([]);
+  const [recommendationReviews, setRecommendationReviews] = useState<
+    Record<string, RecommendationReview[]>
+  >({});
+  const [reviewSavingIds, setReviewSavingIds] = useState<string[]>([]);
+  const [expandedReviewId, setExpandedReviewId] = useState<string | null>(null);
+  const [intelligenceLoading, setIntelligenceLoading] = useState(false);
+  const [intelligenceError, setIntelligenceError] = useState("");
+  const [intelligencePriority, setIntelligencePriority] = useState("All");
+  const [intelligenceFollowUp, setIntelligenceFollowUp] = useState("All");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -103,6 +128,70 @@ export default function App() {
   const [showLeadForm, setShowLeadForm] = useState(false);
   const [draft, setDraft] = useState("");
   const [draftLoading, setDraftLoading] = useState(false);
+
+  const loadIntelligence = useCallback(
+    async (auth: string) => {
+      setIntelligenceLoading(true);
+      setIntelligenceError("");
+      try {
+        const params = new URLSearchParams({ limit: "200" });
+        if (intelligencePriority !== "All")
+          params.set("priority", intelligencePriority);
+        if (intelligenceFollowUp !== "All")
+          params.set("followUpState", intelligenceFollowUp);
+        const result = await api<LeadIntelligenceResponse>(
+          `/api/intelligence/leads?${params.toString()}`,
+          auth,
+        );
+        setIntelligence(result.leads);
+      } catch (e) {
+        setIntelligenceError(
+          e instanceof Error ? e.message : "Could not load sales intelligence",
+        );
+      } finally {
+        setIntelligenceLoading(false);
+      }
+    },
+    [intelligencePriority, intelligenceFollowUp],
+  );
+
+  const loadRecommendationReviews = useCallback(
+    async (auth: string, leadIds: string[]) => {
+      const entries = await Promise.all(
+        leadIds.map(async (leadId) => {
+          try {
+            const reviews = await api<RecommendationReview[]>(
+              `/api/intelligence/leads/${leadId}/reviews`,
+              auth,
+            );
+            return [leadId, reviews] as const;
+          } catch {
+            // A history lookup must not prevent the intelligence cards from loading.
+            return [leadId, [] as RecommendationReview[]] as const;
+          }
+        }),
+      );
+      setRecommendationReviews((current) => {
+        const next = { ...current };
+        for (const [leadId, reviews] of entries) next[leadId] = reviews;
+        return next;
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (token && page === "Sales Intelligence" && intelligence.length > 0) {
+      void loadRecommendationReviews(
+        token,
+        intelligence.map((lead) => lead.leadId),
+      );
+    }
+  }, [token, page, intelligence, loadRecommendationReviews]);
+
+  useEffect(() => {
+    if (token && page === "Sales Intelligence") void loadIntelligence(token);
+  }, [token, page, loadIntelligence]);
   const [mobileNav, setMobileNav] = useState(false);
 
   const selectedLead = leads.find((l) => l.id === selectedId) || null;
@@ -282,6 +371,35 @@ export default function App() {
     }
   }
 
+  async function reviewRecommendation(lead: LeadIntelligence) {
+    if (reviewSavingIds.includes(lead.leadId)) return;
+
+    setReviewSavingIds((ids) => [...ids, lead.leadId]);
+    setError("");
+    try {
+      await api<RecommendationReview>(
+        `/api/intelligence/leads/${lead.leadId}/reviews`,
+        token,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            recommendationKey: "recommended-action-v1",
+            recommendationText: `${lead.recommendedAction} — ${lead.recommendationReason}`,
+          }),
+        },
+      );
+      await loadRecommendationReviews(token, [lead.leadId]);
+      setExpandedReviewId(lead.leadId);
+      notify(`Recommendation review saved for ${lead.fullName}.`);
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Could not save recommendation review",
+      );
+    } finally {
+      setReviewSavingIds((ids) => ids.filter((id) => id !== lead.leadId));
+    }
+  }
+
   if (!token) return <Login onLogin={login} loading={loading} error={error} />;
 
   const nav: { name: Page; icon: typeof LayoutDashboard }[] = [
@@ -290,6 +408,7 @@ export default function App() {
     { name: "Pipeline", icon: Target },
     { name: "AI Copilot", icon: Sparkles },
     { name: "Analytics", icon: Activity },
+    { name: "Sales Intelligence", icon: BrainCircuit },
     ...(user?.role === "Admin"
       ? [{ name: "User Management" as Page, icon: ShieldCheck }]
       : []),
@@ -468,6 +587,35 @@ export default function App() {
               )}
               {page === "Analytics" && (
                 <AnalyticsPage analytics={analytics} leads={leads} />
+              )}
+              {page === "Sales Intelligence" && (
+                <SalesIntelligencePage
+                  leads={intelligence}
+                  reviews={recommendationReviews}
+                  reviewSavingIds={reviewSavingIds}
+                  expandedReviewId={expandedReviewId}
+                  onToggleReviews={(id) =>
+                    setExpandedReviewId((current) =>
+                      current === id ? null : id,
+                    )
+                  }
+                  onLoadReviews={(id) => {
+                    if (token) void loadRecommendationReviews(token, [id]);
+                  }}
+                  loading={intelligenceLoading}
+                  error={intelligenceError}
+                  priority={intelligencePriority}
+                  setPriority={setIntelligencePriority}
+                  followUp={intelligenceFollowUp}
+                  setFollowUp={setIntelligenceFollowUp}
+                  onReview={reviewRecommendation}
+                  canReview={user?.role !== "ReadOnlyAnalyst"}
+                  onRefresh={() => token && void loadIntelligence(token)}
+                  onViewLead={(id) => {
+                    setSelectedId(id);
+                    setPage("Leads");
+                  }}
+                />
               )}
               {page === "User Management" && user?.role === "Admin" && (
                 <UserManagement
@@ -1506,6 +1654,324 @@ function AnalyticsPage({
             historical outcomes.
           </p>
         </div>
+      </div>
+    </>
+  );
+}
+
+function SalesIntelligencePage({
+  leads,
+  reviews,
+  reviewSavingIds,
+  expandedReviewId,
+  onToggleReviews,
+  onLoadReviews,
+  loading,
+  error,
+  priority,
+  setPriority,
+  followUp,
+  setFollowUp,
+  onRefresh,
+  onViewLead,
+  onReview,
+  canReview,
+}: {
+  leads: LeadIntelligence[];
+  reviews: Record<string, RecommendationReview[]>;
+  reviewSavingIds: string[];
+  expandedReviewId: string | null;
+  onToggleReviews: (id: string) => void;
+  onLoadReviews: (id: string) => void;
+  loading: boolean;
+  error: string;
+  priority: string;
+  setPriority: (value: string) => void;
+  followUp: string;
+  setFollowUp: (value: string) => void;
+  onRefresh: () => void;
+  onViewLead: (id: string) => void;
+  onReview: (lead: LeadIntelligence) => void;
+  canReview: boolean;
+}) {
+  const overdue = leads.filter((x) => x.followUpState === "Overdue").length;
+  const high = leads.filter((x) => x.priority === "High").length;
+  const dueSoon = leads.filter(
+    (x) => x.followUpState === "Due within 24 hours",
+  ).length;
+  return (
+    <>
+      <PageHeading
+        eyebrow="RULE-BASED INTELLIGENCE / SALES OPERATIONS"
+        title="Sales Intelligence"
+        subtitle="Explainable lead priorities, follow-up urgency and recommended next actions. No paid AI API is used."
+        action={
+          <button className="primary-btn" onClick={onRefresh}>
+            <Activity size={16} /> Refresh intelligence
+          </button>
+        }
+      />
+      <div className="metrics-grid">
+        <MetricCard
+          label="Leads analysed"
+          value={leads.length}
+          note="Based on current filters"
+          icon={Users}
+        />
+        <MetricCard
+          label="High priority"
+          value={high}
+          note="Rule score ≥ 70"
+          icon={Target}
+        />
+        <MetricCard
+          label="Overdue follow-ups"
+          value={overdue}
+          note="Needs review"
+          icon={AlertCircle}
+        />
+        <MetricCard
+          label="Due within 24 hours"
+          value={dueSoon}
+          note="Upcoming action"
+          icon={CalendarClock}
+        />
+      </div>
+      <section className="panel" style={{ marginBottom: 20 }}>
+        <div className="lead-toolbar">
+          <div className="filter-box">
+            <Filter size={16} />
+            <select
+              aria-label="Filter by priority"
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+            >
+              <option>All</option>
+              <option>High</option>
+              <option>Medium</option>
+              <option>Low</option>
+            </select>
+          </div>
+          <div className="filter-box">
+            <CalendarClock size={16} />
+            <select
+              aria-label="Filter by follow-up urgency"
+              value={followUp}
+              onChange={(e) => setFollowUp(e.target.value)}
+            >
+              <option>All</option>
+              <option>Overdue</option>
+              <option>Due within 24 hours</option>
+              <option>Scheduled</option>
+              <option>Not scheduled</option>
+              <option>Not required — lead is closed</option>
+            </select>
+          </div>
+          <span className="result-count">{leads.length} results</span>
+        </div>
+      </section>
+      {error && (
+        <div className="error-banner">
+          <AlertCircle size={17} />
+          <span>{error}</span>
+        </div>
+      )}
+      {loading ? (
+        <div className="loading">
+          <span className="spinner" /> Analysing leads…
+        </div>
+      ) : leads.length === 0 ? (
+        <div className="panel empty-state">
+          <BrainCircuit size={25} />
+          <strong>No leads match these filters</strong>
+          <span>Try another priority or follow-up state.</span>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 16 }}>
+          {leads.map((lead) => (
+            <section className="panel" key={lead.leadId}>
+              <div
+                className="panel-heading"
+                style={{ alignItems: "flex-start" }}
+              >
+                <div>
+                  <span className="eyebrow">{lead.projectName}</span>
+                  <h3>{lead.fullName}</h3>
+                  <p>
+                    Owner: {lead.assignedTo} · Stage:{" "}
+                    {displayStatus(lead.status)}
+                  </p>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div className="score-cell">
+                    <div
+                      className="score-ring"
+                      style={
+                        { "--score": `${lead.score}%` } as React.CSSProperties
+                      }
+                    >
+                      <span>{lead.score}</span>
+                    </div>
+                    <span
+                      className={`priority-text priority-${lead.priority.toLowerCase()}`}
+                    >
+                      {lead.priority}
+                    </span>
+                  </div>
+                  <small>{lead.followUpState}</small>
+                </div>
+              </div>
+              <div className="insight-strip" style={{ marginTop: 14 }}>
+                <div className="insight-icon">
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <strong>{lead.recommendedAction}</strong>
+                  <p>{lead.recommendationReason}</p>
+                </div>
+              </div>
+              <div style={{ marginTop: 16 }}>
+                <strong>Why this score?</strong>
+                <ul style={{ marginTop: 8, paddingLeft: 22 }}>
+                  {lead.scoreReasons.map((reason, i) => (
+                    <li key={`${lead.leadId}-reason-${i}`}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+              <div
+                className="detail-fields"
+                style={{
+                  marginTop: 16,
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                  gap: 12,
+                  alignItems: "stretch",
+                }}
+              >
+                <DetailField label="Budget" value={money(lead.budgetLakhs)} />
+                <DetailField
+                  label="Purchase timeline"
+                  value={
+                    lead.purchaseTimelineDays == null
+                      ? "Not specified"
+                      : `${lead.purchaseTimelineDays} days`
+                  }
+                />
+                <DetailField
+                  label="Next follow-up"
+                  value={dateLabel(lead.nextFollowUpUtc)}
+                />
+              </div>
+
+              {reviews[lead.leadId]?.length > 0 && (
+                <div
+                  className="panel-footnote"
+                  style={{ marginTop: 12, color: "var(--success, #16794b)" }}
+                >
+                  <Check
+                    size={14}
+                    style={{ display: "inline", verticalAlign: "middle" }}
+                  />{" "}
+                  <strong>Reviewed</strong> by{" "}
+                  {reviews[lead.leadId][0].reviewerName} on{" "}
+                  {new Date(
+                    reviews[lead.leadId][0].reviewedAtUtc,
+                  ).toLocaleString("en-IN")}
+                </div>
+              )}
+              <div
+                className="intelligence-card-actions"
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: 10,
+                  marginTop: 14,
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  className="secondary-btn"
+                  onClick={() => {
+                    onToggleReviews(lead.leadId);
+                    onLoadReviews(lead.leadId);
+                  }}
+                  aria-expanded={expandedReviewId === lead.leadId}
+                >
+                  <CalendarClock size={15} />{" "}
+                  {expandedReviewId === lead.leadId
+                    ? "Hide review history"
+                    : `Review history (${reviews[lead.leadId]?.length ?? 0})`}
+                </button>
+                {canReview && (
+                  <button
+                    className="primary-btn"
+                    disabled={reviewSavingIds.includes(lead.leadId)}
+                    onClick={() => void onReview(lead)}
+                  >
+                    <Check size={15} />{" "}
+                    {reviewSavingIds.includes(lead.leadId)
+                      ? "Saving review…"
+                      : (reviews[lead.leadId]?.length ?? 0) > 0
+                        ? "Review again"
+                        : "Review recommendation"}
+                  </button>
+                )}
+                <button
+                  className="secondary-btn"
+                  onClick={() => onViewLead(lead.leadId)}
+                >
+                  <Users size={15} /> View lead
+                </button>
+              </div>
+              {expandedReviewId === lead.leadId && (
+                <div className="panel" style={{ marginTop: 12, padding: 16 }}>
+                  <strong>Recommendation review history</strong>
+                  {(reviews[lead.leadId] ?? []).length === 0 ? (
+                    <p style={{ marginTop: 8 }}>
+                      No reviews recorded for this lead yet.
+                    </p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+                      {(reviews[lead.leadId] ?? []).map((review) => (
+                        <div
+                          key={review.id}
+                          style={{
+                            borderTop: "1px solid var(--border, #e5e7eb)",
+                            paddingTop: 10,
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: 12,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <strong>{review.reviewerName}</strong>
+                            <small>
+                              {new Date(review.reviewedAtUtc).toLocaleString(
+                                "en-IN",
+                              )}
+                            </small>
+                          </div>
+                          <small>{review.reviewerEmail}</small>
+                          <p style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>
+                            {review.recommendationText}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          ))}
+        </div>
+      )}
+      <div className="panel-footnote" style={{ marginTop: 16 }}>
+        Rule-based recommendations are decision support, not predictions. Verify
+        lead details and follow-up plans before contacting a prospect.
       </div>
     </>
   );

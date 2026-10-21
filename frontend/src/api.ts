@@ -1,5 +1,28 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5080";
 
+export const managedUserRoles = [
+  "Admin",
+  "SalesManager",
+  "SalesExecutive",
+  "ReadOnlyAnalyst",
+] as const;
+
+export type ManagedUser = {
+  id: string;
+  fullName: string;
+  email: string;
+  role: (typeof managedUserRoles)[number];
+  isActive: boolean;
+  createdAtUtc: string;
+};
+
+export type CreateManagedUser = {
+  fullName: string;
+  email: string;
+  password: string;
+  role: (typeof managedUserRoles)[number];
+};
+
 export type Lead = {
   id: string;
   fullName: string;
@@ -64,7 +87,29 @@ export type NewLead = {
   assignedTo: string;
   nextFollowUpUtc: string | null;
 };
-
+export type LeadIntelligence = {
+  leadId: string;
+  fullName: string;
+  projectName: string;
+  assignedTo: string;
+  status: string;
+  score: number;
+  priority: "High" | "Medium" | "Low";
+  budgetLakhs: number | null;
+  purchaseTimelineDays: number | null;
+  nextFollowUpUtc: string | null;
+  followUpState: string;
+  scoreReasons: string[];
+  recommendedAction: string;
+  recommendationReason: string;
+};
+export type LeadIntelligenceResponse = {
+  generatedAtUtc: string;
+  scoringMethod: string;
+  fictionalData: boolean;
+  totalReturned: number;
+  leads: LeadIntelligence[];
+};
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -101,25 +146,3 @@ export async function api<T>(
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
-
-export type ManagedUser = {
-  id: string;
-  fullName: string;
-  email: string;
-  role: "Admin" | "SalesManager" | "SalesExecutive" | "ReadOnlyAnalyst";
-  isActive: boolean;
-};
-
-export type CreateManagedUser = {
-  fullName: string;
-  email: string;
-  password: string;
-  role: ManagedUser["role"];
-};
-
-export const managedUserRoles: ManagedUser["role"][] = [
-  "Admin",
-  "SalesManager",
-  "SalesExecutive",
-  "ReadOnlyAnalyst",
-];

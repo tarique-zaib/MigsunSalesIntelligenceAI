@@ -2206,246 +2206,916 @@ footer {
   }
 }
 
-  /* User Management — desktop layout fixes */
+/* User Management — desktop layout fixes */
+.user-management .user-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.user-management .user-filters .search-box {
+  display: flex;
+  align-items: center;
+  flex: 1 1 260px;
+  max-width: 370px;
+  min-width: 220px;
+  height: 42px;
+  box-sizing: border-box;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+}
+
+.user-management .user-filters .search-box input {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  box-shadow: none;
+  font: inherit;
+  font-size: 13px;
+}
+
+.user-management .user-filters select {
+  width: auto;
+  min-width: 145px;
+  height: 42px;
+  padding: 0 34px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background-color: #fff;
+  color: #344054;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+}
+
+.user-management .user-filters select:focus,
+.user-management .user-filters .search-box:focus-within {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgb(198 163 99 / 12%);
+}
+
+.user-management .user-table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 22px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
   .user-management .user-filters {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 12px;
-    padding: 16px 22px;
-    border-bottom: 1px solid var(--line);
+    align-items: stretch;
+    padding: 14px;
   }
 
   .user-management .user-filters .search-box {
-    display: flex;
-    align-items: center;
-    flex: 1 1 260px;
-    max-width: 370px;
-    min-width: 220px;
-    height: 42px;
-    box-sizing: border-box;
-    gap: 10px;
-    padding: 0 12px;
-    border: 1px solid var(--line);
-    border-radius: 9px;
-    background: #fff;
+    flex: 1 1 100%;
+    max-width: none;
+    min-width: 0;
   }
 
-  .user-management .user-filters .search-box input {
+  .user-management .user-filters select {
+    flex: 1 1 130px;
+    min-width: 0;
+  }
+
+  .user-management .user-table-footer {
+    padding: 14px;
+  }
+}
+
+/* User Management — desktop filter and table corrections */
+.user-management .user-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+}
+
+.user-management .user-filters .search-box {
+  flex: 0 1 370px;
+  width: 370px;
+  max-width: 100%;
+  min-width: 220px;
+  box-sizing: border-box;
+}
+
+.user-management .user-filters select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-width: 150px;
+  height: 42px;
+  padding: 0 36px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%237c8798' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  color: #344054;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.user-management .user-filters select:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgb(198 163 99 / 12%);
+}
+
+.user-management .user-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+
+.user-management .user-table th {
+  padding: 14px 22px;
+  background: #f8fafc;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.user-management .user-table td {
+  padding: 15px 22px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.user-management .user-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.user-management .user-table-footer {
+  padding: 15px 22px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .user-management .user-filters {
+    padding: 14px;
+  }
+
+  .user-management .user-filters .search-box {
+    flex: 1 1 100%;
     width: 100%;
     min-width: 0;
-    height: 100%;
-    padding: 0;
-    border: 0;
-    outline: none;
-    background: transparent;
-    box-shadow: none;
-    font: inherit;
-    font-size: 13px;
   }
 
   .user-management .user-filters select {
-    width: auto;
-    min-width: 145px;
-    height: 42px;
-    padding: 0 34px 0 12px;
-    border: 1px solid var(--line);
-    border-radius: 9px;
-    background-color: #fff;
-    color: #344054;
-    font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-    outline: none;
+    flex: 1 1 130px;
+    min-width: 0;
   }
 
-  .user-management .user-filters select:focus,
-  .user-management .user-filters .search-box:focus-within {
-    border-color: var(--gold);
-    box-shadow: 0 0 0 3px rgb(198 163 99 / 12%);
-  }
-
-  .user-management .user-table-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 16px 22px;
-    border-top: 1px solid var(--line);
-    color: var(--muted);
-    font-size: 12px;
-  }
-
-  @media (max-width: 640px) {
-    .user-management .user-filters {
-      align-items: stretch;
-      padding: 14px;
-    }
-
-    .user-management .user-filters .search-box {
-      flex: 1 1 100%;
-      max-width: none;
-      min-width: 0;
-    }
-
-    .user-management .user-filters select {
-      flex: 1 1 130px;
-      min-width: 0;
-    }
-
-    .user-management .user-table-footer {
-      padding: 14px;
-    }
-  }
-
-  /* User Management — desktop filter and table corrections */
-  .user-management .user-filters {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
-    padding: 16px 22px;
-    border-bottom: 1px solid var(--line);
-    background: #fff;
-  }
-
-  .user-management .user-filters .search-box {
-    flex: 0 1 370px;
-    width: 370px;
-    max-width: 100%;
-    min-width: 220px;
-    box-sizing: border-box;
-  }
-
-  .user-management .user-filters select {
-    appearance: none;
-    -webkit-appearance: none;
-    min-width: 150px;
-    height: 42px;
-    padding: 0 36px 0 12px;
-    border: 1px solid var(--line);
-    border-radius: 9px;
-    background-color: #fff;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%237c8798' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 12px center;
-    color: #344054;
-    font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-  }
-
-  .user-management .user-filters select:focus {
-    outline: none;
-    border-color: var(--gold);
-    box-shadow: 0 0 0 3px rgb(198 163 99 / 12%);
-  }
-
-  .user-management .user-table {
-    width: 100%;
-    border-collapse: collapse;
-    text-align: left;
-    font-size: 12px;
-  }
-
-  .user-management .user-table th {
-    padding: 14px 22px;
-    background: #f8fafc;
-    border-bottom: 1px solid var(--line);
-    color: var(--muted);
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-
+  .user-management .user-table th,
   .user-management .user-table td {
-    padding: 15px 22px;
-    border-bottom: 1px solid var(--line);
-    vertical-align: middle;
-  }
-
-  .user-management .user-table tbody tr:last-child td {
-    border-bottom: none;
+    padding: 12px;
   }
 
   .user-management .user-table-footer {
-    padding: 15px 22px;
-    border-top: 1px solid var(--line);
-    color: var(--muted);
-    font-size: 12px;
+    padding: 14px;
   }
+}
 
-  @media (max-width: 640px) {
-    .user-management .user-filters {
-      padding: 14px;
-    }
+/* Target the exact User Management filter elements */
+section.page-content.user-management
+  .user-filters
+  select[aria-label="Filter by role"],
+section.page-content.user-management
+  .user-filters
+  select[aria-label="Filter by status"] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  box-sizing: border-box !important;
+  width: 150px !important;
+  min-width: 150px !important;
+  height: 42px !important;
+  padding: 0 34px 0 12px !important;
+  border: 1px solid #e6eaf0 !important;
+  border-radius: 9px !important;
+  background-color: #ffffff !important;
+  color: #344054 !important;
+  font-family: "DM Sans", sans-serif !important;
+  font-size: 13px !important;
+  line-height: normal !important;
+  cursor: pointer;
+}
 
-    .user-management .user-filters .search-box {
-      flex: 1 1 100%;
-      width: 100%;
-      min-width: 0;
-    }
+section.page-content.user-management
+  .user-filters
+  select[aria-label="Filter by role"]:focus,
+section.page-content.user-management
+  .user-filters
+  select[aria-label="Filter by status"]:focus {
+  outline: none !important;
+  border-color: #c6a363 !important;
+  box-shadow: 0 0 0 3px rgb(198 163 99 / 12%) !important;
+}
 
-    .user-management .user-filters select {
-      flex: 1 1 130px;
-      min-width: 0;
-    }
-
-    .user-management .user-table th,
-    .user-management .user-table td {
-      padding: 12px;
-    }
-
-    .user-management .user-table-footer {
-      padding: 14px;
-    }
-  }
-
-  /* Target the exact User Management filter elements */
+@media (max-width: 640px) {
   section.page-content.user-management
     .user-filters
     select[aria-label="Filter by role"],
   section.page-content.user-management
     .user-filters
     select[aria-label="Filter by status"] {
-    appearance: none !important;
-    -webkit-appearance: none !important;
-    box-sizing: border-box !important;
-    width: 150px !important;
-    min-width: 150px !important;
-    height: 42px !important;
-    padding: 0 34px 0 12px !important;
-    border: 1px solid #e6eaf0 !important;
-    border-radius: 9px !important;
-    background-color: #ffffff !important;
-    color: #344054 !important;
-    font-family: "DM Sans", sans-serif !important;
-    font-size: 13px !important;
-    line-height: normal !important;
-    cursor: pointer;
+    flex: 1 1 130px !important;
+    width: auto !important;
+    min-width: 0 !important;
+  }
+}
+
+/* Sales Intelligence responsive layout */
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+.app-shell,
+.main-area,
+.page-content {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.page-content > * {
+  min-width: 0;
+}
+
+.intelligence-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.intelligence-metrics {
+  margin-bottom: 18px;
+}
+
+.intelligence-filters {
+  padding: 12px 14px;
+  margin-bottom: 18px;
+}
+
+.intelligence-filters .lead-toolbar {
+  margin: 0;
+  flex-wrap: wrap;
+}
+
+.intelligence-follow-filter select {
+  min-width: 190px;
+  max-width: 100%;
+}
+
+.intelligence-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+}
+
+.intelligence-card {
+  padding: 20px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.intelligence-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  min-width: 0;
+}
+
+.intelligence-lead-identity {
+  flex: 1;
+  min-width: 0;
+}
+
+.intelligence-lead-identity .eyebrow {
+  display: block;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.intelligence-lead-identity h3 {
+  margin: 5px 0 5px;
+  color: #243248;
+  font-family: Manrope, sans-serif;
+  font-size: 17px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.intelligence-lead-identity p {
+  margin: 0;
+  color: #7f8a9a;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.intelligence-score-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+  min-width: 105px;
+}
+
+.intelligence-score-block .score-cell {
+  justify-content: flex-end;
+}
+
+.intelligence-follow-up {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 190px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: center;
+  overflow-wrap: anywhere;
+  background: #eef2f7;
+  color: #637188;
+}
+
+.intelligence-follow-up-overdue {
+  background: #fff0ef;
+  color: #b4444c;
+}
+
+.intelligence-follow-up-soon {
+  background: #fff5e6;
+  color: #946821;
+}
+
+.intelligence-follow-up-missing {
+  background: #f1f2f5;
+  color: #737d8d;
+}
+
+.intelligence-follow-up-normal {
+  background: #eaf6f0;
+  color: #247b5b;
+}
+
+.intelligence-recommendation {
+  margin-top: 16px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.intelligence-recommendation-copy {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.intelligence-recommendation-copy strong {
+  display: block;
+  line-height: 1.5;
+}
+
+.intelligence-recommendation-copy p {
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.intelligence-card-bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(240px, 0.9fr);
+  gap: 24px;
+  margin-top: 20px;
+  min-width: 0;
+}
+
+.intelligence-reasons {
+  min-width: 0;
+}
+
+.intelligence-reasons h4 {
+  margin: 0 0 9px;
+  color: #273449;
+  font-size: 13px;
+}
+
+.intelligence-reasons ul {
+  margin: 0;
+  padding-left: 19px;
+  color: #536176;
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+.intelligence-reasons li {
+  padding-left: 2px;
+  overflow-wrap: anywhere;
+}
+
+.intelligence-muted {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.intelligence-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 0 18px;
+  min-width: 0;
+  padding: 0;
+}
+
+.intelligence-details .detail-field {
+  min-width: 0;
+  padding: 10px 0;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.intelligence-details .detail-field:last-child {
+  grid-column: 1 / -1;
+}
+
+.intelligence-details .detail-field > strong {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.intelligence-disclaimer {
+  line-height: 1.6;
+}
+
+.intelligence-error {
+  margin: 0 0 16px;
+}
+
+@media (max-width: 1100px) {
+  .intelligence-card-bottom {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
   }
 
-  section.page-content.user-management
-    .user-filters
-    select[aria-label="Filter by role"]:focus,
-  section.page-content.user-management
-    .user-filters
-    select[aria-label="Filter by status"]:focus {
-    outline: none !important;
-    border-color: #c6a363 !important;
-    box-shadow: 0 0 0 3px rgb(198 163 99 / 12%) !important;
+  .intelligence-details {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0 14px;
+  }
+
+  .intelligence-details .detail-field:last-child {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 700px) {
+  .intelligence-card {
+    padding: 15px;
+  }
+
+  .intelligence-card-header {
+    gap: 12px;
+  }
+
+  .intelligence-lead-identity h3 {
+    font-size: 15px;
+  }
+
+  .intelligence-score-block {
+    min-width: 88px;
+  }
+
+  .intelligence-follow-up {
+    max-width: 130px;
+    font-size: 9px;
+  }
+
+  .intelligence-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .intelligence-details .detail-field:last-child {
+    grid-column: auto;
+  }
+
+  .intelligence-follow-filter,
+  .intelligence-follow-filter select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .intelligence-filters .lead-toolbar {
+    align-items: stretch;
+  }
+
+  .intelligence-filters .filter-box {
+    max-width: 100%;
+  }
+
+  .intelligence-filters .result-count {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  /* Sales Intelligence: prevent page-level horizontal overflow */
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    min-width: 320px;
+  }
+
+  .app-shell {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: clip;
+  }
+
+  .main-area {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .page-content {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .intelligence-page,
+  .intelligence-list,
+  .intelligence-card {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .intelligence-card * {
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 768px) {
+    .main-area {
+      margin-left: 0;
+      width: 100%;
+    }
+
+    .page-content {
+      padding-right: 16px;
+      padding-left: 16px;
+    }
+  }
+}
+
+/* Sales Intelligence layout polish — appended overrides */
+.intelligence-page,
+.intelligence-page > *,
+.intelligence-list,
+.intelligence-card,
+.intelligence-card > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.intelligence-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 20px;
+  overflow: hidden;
+}
+
+.intelligence-card-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 20px;
+  width: 100%;
+}
+
+.intelligence-score-block {
+  align-items: flex-end;
+  text-align: right;
+  max-width: 220px;
+}
+
+.intelligence-recommendation {
+  display: flex;
+  width: 100%;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #eee3cd;
+  border-radius: 9px;
+  background: #fdfaf3;
+}
+
+.intelligence-recommendation-copy {
+  flex: 1;
+}
+
+.intelligence-card-bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+  width: 100%;
+}
+
+.intelligence-reasons,
+.intelligence-details {
+  min-width: 0;
+  width: 100%;
+}
+
+.intelligence-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 0 18px;
+}
+
+.intelligence-details .detail-field {
+  min-width: 0;
+  padding: 11px 0;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.intelligence-details .detail-field:last-child {
+  grid-column: 1 / -1;
+}
+
+.intelligence-card-actions {
+  display: flex !important;
+  justify-content: flex-end !important;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+  margin-top: 18px !important;
+  padding-top: 15px;
+  border-top: 1px solid #edf0f4;
+}
+
+.intelligence-card-actions button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 1100px) {
+  .intelligence-card-bottom {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  .intelligence-details {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .intelligence-details .detail-field:last-child {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 700px) {
+  .intelligence-card {
+    padding: 14px;
+  }
+
+  .intelligence-card-header {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .intelligence-score-block {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .intelligence-follow-up {
+    max-width: 100%;
+  }
+
+  .intelligence-recommendation {
+    padding: 12px;
+  }
+
+  .intelligence-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .intelligence-card-actions {
+    justify-content: stretch !important;
+  }
+
+  .intelligence-card-actions button {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .intelligence-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Sales Intelligence — layout correction */
+  .intelligence-card {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .intelligence-card-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 16px;
+  }
+
+  .intelligence-card-header > :first-child {
+    min-width: 0;
+  }
+
+  .intelligence-card-header > :last-child {
+    text-align: right;
+  }
+
+  .intelligence-card-details {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .intelligence-card-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
   }
 
   @media (max-width: 640px) {
-    section.page-content.user-management
-      .user-filters
-      select[aria-label="Filter by role"],
-    section.page-content.user-management
-      .user-filters
-      select[aria-label="Filter by status"] {
-      flex: 1 1 130px !important;
-      width: auto !important;
-      min-width: 0 !important;
+    .intelligence-card-header {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .intelligence-card-header > :last-child {
+      text-align: left;
+    }
+
+    .intelligence-card-details {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .intelligence-card-actions > button {
+      flex: 1 1 auto;
     }
   }
+
+  /* Sales Intelligence card layout */
+  .page-content > div > .panel {
+    min-width: 0;
+  }
+
+  .intelligence-card-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .detail-fields:has(+ .intelligence-card-actions) {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    padding: 12px 0;
+  }
+
+  .detail-fields:has(+ .intelligence-card-actions) .detail-field {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fafbfc;
+  }
+
+  .panel-heading h3 {
+    overflow-wrap: anywhere;
+  }
+
+  .insight-strip {
+    min-width: 0;
+  }
+
+  .insight-strip > div:nth-child(2) {
+    min-width: 0;
+  }
+
+  .insight-strip p {
+    overflow-wrap: anywhere;
+  }
+
+  .score-cell {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  @media (max-width: 640px) {
+    .detail-fields:has(+ .intelligence-card-actions) {
+      grid-template-columns: 1fr;
+    }
+
+    .intelligence-card-actions {
+      justify-content: stretch;
+    }
+
+    .intelligence-card-actions button {
+      flex: 1 1 180px;
+    }
+
+    .panel-heading {
+      gap: 12px;
+    }
+  }
+  /* Fix Sales Intelligence lead details */
+.detail-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+
+.detail-fields .detail-field {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.detail-fields .detail-field > strong {
+  overflow-wrap: anywhere;
+}
+
+.intelligence-card-actions {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 700px) {
+  .detail-fields {
+    grid-template-columns: 1fr;
+  }
+}
+.detail-fields .detail-field {
+  min-width: 0;
+  padding: 12px !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.detail-fields .detail-field > strong {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .detail-fields {
+    grid-template-columns: 1fr !important;
+  }
+}
+}

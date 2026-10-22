@@ -55,6 +55,41 @@ namespace MigsunSales.Api.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("MigsunSales.Api.FollowUpAction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CompletedByName")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<Guid?>("CompletedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("DueAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsCompleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("LeadId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompletedAtUtc");
+
+                    b.HasIndex("LeadId", "DueAtUtc")
+                        .IsUnique();
+
+                    b.ToTable("FollowUpActions");
+                });
+
             modelBuilder.Entity("MigsunSales.Api.Lead", b =>
                 {
                     b.Property<Guid>("Id")
@@ -162,6 +197,17 @@ namespace MigsunSales.Api.Migrations
                     b.HasIndex("LeadId", "ReviewedAtUtc");
 
                     b.ToTable("RecommendationReviews");
+                });
+
+            modelBuilder.Entity("MigsunSales.Api.FollowUpAction", b =>
+                {
+                    b.HasOne("MigsunSales.Api.Lead", "Lead")
+                        .WithMany()
+                        .HasForeignKey("LeadId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Lead");
                 });
 
             modelBuilder.Entity("MigsunSales.Api.RecommendationReview", b =>

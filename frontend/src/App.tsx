@@ -10,6 +10,8 @@ import {
   Building2,
   CalendarClock,
   Check,
+  Clock,
+  ClipboardCheck,
   ChevronDown,
   CircleHelp,
   Download,
@@ -61,8 +63,29 @@ type Page =
   | "AI Copilot"
   | "Analytics"
   | "Sales Intelligence"
+  | "Action Center"
   | "User Management";
 type User = { name: string; email: string; role: string };
+
+type ActionCenterTask = {
+  leadId: string;
+  fullName: string;
+  projectName: string;
+  status: string;
+  assignedTo: string;
+  nextFollowUpUtc: string | null;
+  score: number;
+  priority: string;
+  isCompleted: boolean;
+  completedAtUtc: string | null;
+  completedByName: string | null;
+};
+
+type ActionCenterResponse = {
+  generatedAtUtc: string;
+  completedToday: number;
+  tasks: ActionCenterTask[];
+};
 
 type RecommendationReview = {
   id: string;
@@ -109,6 +132,11 @@ export default function App() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [actionTasks, setActionTasks] = useState<ActionCenterTask[]>([]);
+  const [actionCompletedToday, setActionCompletedToday] = useState(0);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const [actionBusyIds, setActionBusyIds] = useState<string[]>([]);
   const [intelligence, setIntelligence] = useState<LeadIntelligence[]>([]);
   const [recommendationReviews, setRecommendationReviews] = useState<
     Record<string, RecommendationReview[]>
@@ -128,6 +156,58 @@ export default function App() {
   const [showLeadForm, setShowLeadForm] = useState(false);
   const [draft, setDraft] = useState("");
   const [draftLoading, setDraftLoading] = useState(false);
+
+  const loadActionCenter = useCallback(async (auth: string) => {
+    setActionLoading(true);
+    setActionError("");
+    try {
+      const result = await api<ActionCenterResponse>("/api/action-center", auth);
+      setActionTasks(result.tasks);
+      setActionCompletedToday(result.completedToday);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Could not load Action Center");
+    } finally {
+      setActionLoading(false);
+    }
+  }, []);
+
+  async function completeFollowUp(task: ActionCenterTask) {
+    if (!token || actionBusyIds.includes(task.leadId)) return;
+    setActionBusyIds((ids) => [...ids, task.leadId]);
+    setActionError("");
+    try {
+      await api(`/api/action-center/${task.leadId}/complete`, token, { method: "POST" });
+      await loadActionCenter(token);
+      notify(`Follow-up completed for ${task.fullName}.`);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Could not complete follow-up");
+    } finally {
+      setActionBusyIds((ids) => ids.filter((id) => id !== task.leadId));
+    }
+  }
+
+  async function scheduleFollowUp(leadId: string, localDateTime: string) {
+    if (!token || !localDateTime || actionBusyIds.includes(leadId)) return;
+    const date = new Date(localDateTime);
+    if (Number.isNaN(date.getTime())) {
+      setActionError("Choose a valid follow-up date and time.");
+      return;
+    }
+    setActionBusyIds((ids) => [...ids, leadId]);
+    setActionError("");
+    try {
+      await api(`/api/action-center/${leadId}/schedule`, token, {
+        method: "PUT",
+        body: JSON.stringify({ nextFollowUpUtc: date.toISOString() }),
+      });
+      await Promise.all([loadActionCenter(token), loadData(token)]);
+      notify("Follow-up scheduled.");
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Could not schedule follow-up");
+    } finally {
+      setActionBusyIds((ids) => ids.filter((id) => id !== leadId));
+    }
+  }
 
   const loadIntelligence = useCallback(
     async (auth: string) => {
@@ -192,6 +272,10 @@ export default function App() {
   useEffect(() => {
     if (token && page === "Sales Intelligence") void loadIntelligence(token);
   }, [token, page, loadIntelligence]);
+
+  useEffect(() => {
+    if (token && page === "Action Center") void loadActionCenter(token);
+  }, [token, page, loadActionCenter]);
   const [mobileNav, setMobileNav] = useState(false);
 
   const selectedLead = leads.find((l) => l.id === selectedId) || null;
@@ -409,6 +493,7 @@ export default function App() {
     { name: "AI Copilot", icon: Sparkles },
     { name: "Analytics", icon: Activity },
     { name: "Sales Intelligence", icon: BrainCircuit },
+    { name: "Action Center", icon: ClipboardCheck },
     ...(user?.role === "Admin"
       ? [{ name: "User Management" as Page, icon: ShieldCheck }]
       : []),
@@ -615,6 +700,20 @@ export default function App() {
                     setSelectedId(id);
                     setPage("Leads");
                   }}
+                />
+              )}
+              {page === "Action Center" && (
+                <ActionCenterPage
+                  tasks={actionTasks}
+                  completedToday={actionCompletedToday}
+                  loading={actionLoading}
+                  error={actionError}
+                  busyIds={actionBusyIds}
+                  canWrite={user?.role !== "ReadOnlyAnalyst"}
+                  onRefresh={() => token && void loadActionCenter(token)}
+                  onComplete={completeFollowUp}
+                  onSchedule={scheduleFollowUp}
+                  onViewLead={(id) => { setSelectedId(id); setPage("Leads"); }}
                 />
               )}
               {page === "User Management" && user?.role === "Admin" && (
@@ -1973,6 +2072,111 @@ function SalesIntelligencePage({
         Rule-based recommendations are decision support, not predictions. Verify
         lead details and follow-up plans before contacting a prospect.
       </div>
+    </>
+  );
+}
+
+function ActionCenterPage({
+  tasks,
+  completedToday,
+  loading,
+  error,
+  busyIds,
+  canWrite,
+  onRefresh,
+  onComplete,
+  onSchedule,
+  onViewLead,
+}: {
+  tasks: ActionCenterTask[];
+  completedToday: number;
+  loading: boolean;
+  error: string;
+  busyIds: string[];
+  canWrite: boolean;
+  onRefresh: () => void;
+  onComplete: (task: ActionCenterTask) => void;
+  onSchedule: (leadId: string, localDateTime: string) => void;
+  onViewLead: (leadId: string) => void;
+}) {
+  const [filter, setFilter] = useState("All actions");
+  const [scheduleValues, setScheduleValues] = useState<Record<string, string>>({});
+  const now = new Date();
+  const activeTasks = tasks.filter((task) => !["Booked", "Lost"].includes(task.status));
+  const dueToday = activeTasks.filter((task) => task.nextFollowUpUtc && new Date(task.nextFollowUpUtc).toDateString() === now.toDateString() && !task.isCompleted).length;
+  const overdue = activeTasks.filter((task) => task.nextFollowUpUtc && new Date(task.nextFollowUpUtc) < now && !task.isCompleted).length;
+  const highPriority = activeTasks.filter((task) => task.priority === "High" && !task.isCompleted).length;
+  const unassigned = activeTasks.filter((task) => !task.assignedTo || task.assignedTo.toLowerCase() === "unassigned").length;
+  const sorted = [...activeTasks].sort((a, b) => {
+    if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+    const aDue = a.nextFollowUpUtc ? new Date(a.nextFollowUpUtc).getTime() : Number.MAX_SAFE_INTEGER;
+    const bDue = b.nextFollowUpUtc ? new Date(b.nextFollowUpUtc).getTime() : Number.MAX_SAFE_INTEGER;
+    if (aDue !== bDue) return aDue - bDue;
+    return b.score - a.score;
+  });
+  const visible = sorted.filter((task) => {
+    if (filter === "Overdue") return !!task.nextFollowUpUtc && new Date(task.nextFollowUpUtc) < now && !task.isCompleted;
+    if (filter === "Due today") return !!task.nextFollowUpUtc && new Date(task.nextFollowUpUtc).toDateString() === now.toDateString() && !task.isCompleted;
+    if (filter === "High priority") return task.priority === "High" && !task.isCompleted;
+    if (filter === "Unassigned") return !task.assignedTo || task.assignedTo.toLowerCase() === "unassigned";
+    if (filter === "Completed") return task.isCompleted;
+    return true;
+  });
+  return (
+    <>
+      <PageHeading
+        eyebrow="DAILY SALES EXECUTION"
+        title="Today's Action Center"
+        subtitle="Prioritise follow-ups, close the loop on completed actions, and schedule the next contact. Changes are saved to the API."
+        action={<button className="primary-btn" onClick={onRefresh}><Activity size={16} /> Refresh actions</button>}
+      />
+      <div className="metrics-grid">
+        <MetricCard label="Overdue" value={overdue} note="Needs attention" icon={AlertCircle} />
+        <MetricCard label="Due today" value={dueToday} note="Scheduled for today" icon={CalendarClock} />
+        <MetricCard label="High priority" value={highPriority} note="Open high-score leads" icon={Target} />
+        <MetricCard label="Completed today" value={completedToday} note="Saved completion records" icon={Check} />
+      </div>
+      <section className="panel" style={{ marginBottom: 18 }}>
+        <div className="lead-toolbar">
+          <div className="filter-box"><Filter size={16} /><select aria-label="Filter action center" value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option>All actions</option><option>Overdue</option><option>Due today</option><option>High priority</option><option>Unassigned</option><option>Completed</option>
+          </select></div>
+          <span className="result-count">{visible.length} actions · {unassigned} unassigned</span>
+        </div>
+      </section>
+      {error && <div className="error-banner"><AlertCircle size={17} /><span>{error}</span></div>}
+      {loading ? <div className="loading"><span className="spinner" /> Loading action queue…</div> : visible.length === 0 ? (
+        <div className="panel empty-state"><ClipboardCheck size={26} /><strong>No actions in this view</strong><span>Try another filter or schedule a follow-up for an active lead.</span></div>
+      ) : <div style={{ display: "grid", gap: 14 }}>
+        {visible.map((task) => {
+          const isOverdue = !!task.nextFollowUpUtc && new Date(task.nextFollowUpUtc) < now && !task.isCompleted;
+          const defaultLocal = task.nextFollowUpUtc ? new Date(new Date(task.nextFollowUpUtc).getTime() - new Date(task.nextFollowUpUtc).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
+          return <section className="panel" key={task.leadId}>
+            <div className="panel-heading" style={{ alignItems: "flex-start" }}>
+              <div>
+                <span className="eyebrow">{task.projectName} · {task.priority} priority</span>
+                <h3>{task.fullName}</h3>
+                <p>Owner: {task.assignedTo || "Unassigned"} · Stage: {displayStatus(task.status)}</p>
+                <small>{task.nextFollowUpUtc ? `Follow-up: ${dateLabel(task.nextFollowUpUtc)}` : "No follow-up scheduled"}</small>
+              </div>
+              <div style={{ textAlign: "right", minWidth: 76 }}>
+                <div className="score-cell"><div className="score-ring" style={{ "--score": `${task.score}%` } as React.CSSProperties}><span>{task.score}</span></div><span>score</span></div>
+                {task.isCompleted ? <span className="tiny-pill">Completed</span> : isOverdue ? <span className="tiny-pill">Overdue</span> : null}
+              </div>
+            </div>
+            {task.isCompleted && task.completedAtUtc && <p style={{ margin: "8px 0", color: "var(--muted, #64748b)" }}>Completed by {task.completedByName || "workspace user"} · {new Date(task.completedAtUtc).toLocaleString("en-IN")}</p>}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 14 }}>
+              <button className="secondary-btn" onClick={() => onViewLead(task.leadId)}><Users size={15} /> View lead</button>
+              {canWrite && !task.isCompleted && task.nextFollowUpUtc && <button className="primary-btn" disabled={busyIds.includes(task.leadId)} onClick={() => onComplete(task)}><Check size={15} /> {busyIds.includes(task.leadId) ? "Saving…" : "Mark complete"}</button>}
+              {canWrite && !task.isCompleted && <>
+                <input aria-label={`Next follow-up for ${task.fullName}`} type="datetime-local" value={scheduleValues[task.leadId] ?? defaultLocal} onChange={(e) => setScheduleValues((old) => ({ ...old, [task.leadId]: e.target.value }))} style={{ minWidth: 210, padding: "9px 10px", border: "1px solid var(--border, #dbe2ea)", borderRadius: 8, background: "var(--surface, white)", color: "inherit" }} />
+                <button className="secondary-btn" disabled={busyIds.includes(task.leadId) || !(scheduleValues[task.leadId] ?? defaultLocal)} onClick={() => onSchedule(task.leadId, scheduleValues[task.leadId] ?? defaultLocal)}><Clock size={15} /> Schedule follow-up</button>
+              </>}
+            </div>
+          </section>;
+        })}
+      </div>}
+      <div className="panel-footnote" style={{ marginTop: 16 }}>Completion and scheduling are recorded by the API. Priority continues to use the existing deterministic lead-scoring formula.</div>
     </>
   );
 }

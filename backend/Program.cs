@@ -88,6 +88,23 @@ using (var scope = app.Services.CreateScope())
     else
         await db.Database.MigrateAsync();
 
+    // Additive/idempotent table creation keeps existing development databases intact.
+    await db.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "FollowUpActions" (
+            "Id" uuid PRIMARY KEY,
+            "LeadId" uuid NOT NULL REFERENCES "Leads" ("Id") ON DELETE RESTRICT,
+            "DueAtUtc" timestamp with time zone NOT NULL,
+            "IsCompleted" boolean NOT NULL DEFAULT FALSE,
+            "CompletedAtUtc" timestamp with time zone NULL,
+            "CompletedByUserId" uuid NULL,
+            "CompletedByName" character varying(120) NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_FollowUpActions_LeadId_DueAtUtc"
+            ON "FollowUpActions" ("LeadId", "DueAtUtc");
+        CREATE INDEX IF NOT EXISTS "IX_FollowUpActions_CompletedAtUtc"
+            ON "FollowUpActions" ("CompletedAtUtc");
+        """);
+
     await DemoSeeder.SeedLeadsAsync(db, environment.IsDevelopment());
 
     // Bootstrap the first administrator only when explicit credentials are supplied via environment variables.
@@ -445,6 +462,96 @@ app.MapPatch("/api/admin/users/{id:guid}/active", async (
 })
 .RequireAuthorization("AdminOnly");
 
+app.MapGet("/api/action-center", async (SalesDbContext db) =>
+{
+    var now = DateTime.UtcNow;
+    var leads = await db.Leads.AsNoTracking()
+        .Where(l => l.Status != LeadStatus.Booked && l.Status != LeadStatus.Lost)
+        .ToListAsync();
+    var leadIds = leads.Select(l => l.Id).ToArray();
+    var actions = await db.FollowUpActions.AsNoTracking()
+        .Where(a => leadIds.Contains(a.LeadId))
+        .ToListAsync();
+    var tasks = leads.Select(lead =>
+    {
+        var score = LeadScoring.Score(lead);
+        var action = lead.NextFollowUpUtc.HasValue
+            ? actions.FirstOrDefault(a => a.LeadId == lead.Id && a.DueAtUtc == DateTime.SpecifyKind(lead.NextFollowUpUtc.Value, DateTimeKind.Utc))
+            : null;
+        return new
+        {
+            leadId = lead.Id,
+            lead.FullName,
+            lead.ProjectName,
+            status = lead.Status.ToString(),
+            lead.AssignedTo,
+            nextFollowUpUtc = lead.NextFollowUpUtc,
+            score,
+            priority = LeadScoring.Priority(score),
+            isCompleted = action?.IsCompleted ?? false,
+            completedAtUtc = action?.CompletedAtUtc,
+            completedByName = action?.CompletedByName
+        };
+    }).OrderBy(x => x.isCompleted)
+      .ThenBy(x => x.nextFollowUpUtc ?? DateTime.MaxValue)
+      .ThenByDescending(x => x.score)
+      .ToArray();
+    var completedToday = await db.FollowUpActions.AsNoTracking()
+        .CountAsync(a => a.IsCompleted && a.CompletedAtUtc >= now.Date && a.CompletedAtUtc < now.Date.AddDays(1));
+    return Results.Ok(new { generatedAtUtc = now, completedToday, tasks, fictionalData = true });
+}).RequireAuthorization("LeadRead");
+
+app.MapPost("/api/action-center/{leadId:guid}/complete", async (
+    Guid leadId,
+    SalesDbContext db,
+    ClaimsPrincipal principal) =>
+{
+    var lead = await db.Leads.FirstOrDefaultAsync(l => l.Id == leadId);
+    if (lead is null) return Results.NotFound(new { message = "Lead not found." });
+    if (lead.Status is LeadStatus.Booked or LeadStatus.Lost)
+        return Results.BadRequest(new { message = "Closed leads do not need follow-up completion." });
+    if (!lead.NextFollowUpUtc.HasValue)
+        return Results.BadRequest(new { message = "Schedule a follow-up before marking it complete." });
+    if (!Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        return Results.Unauthorized();
+    var due = DateTime.SpecifyKind(lead.NextFollowUpUtc.Value, DateTimeKind.Utc);
+    var action = await db.FollowUpActions.FirstOrDefaultAsync(a => a.LeadId == leadId && a.DueAtUtc == due);
+    if (action is null)
+    {
+        action = new FollowUpAction { LeadId = leadId, DueAtUtc = due };
+        db.FollowUpActions.Add(action);
+    }
+    if (!action.IsCompleted)
+    {
+        action.IsCompleted = true;
+        action.CompletedAtUtc = DateTime.UtcNow;
+        action.CompletedByUserId = userId;
+        action.CompletedByName = principal.Identity?.Name ?? principal.FindFirstValue(ClaimTypes.Email) ?? "Workspace user";
+    }
+    await db.SaveChangesAsync();
+    return Results.Ok(new { action.Id, action.LeadId, action.DueAtUtc, action.IsCompleted, action.CompletedAtUtc, action.CompletedByName });
+}).RequireAuthorization("LeadWrite");
+
+app.MapPut("/api/action-center/{leadId:guid}/schedule", async (
+    Guid leadId,
+    ScheduleFollowUpRequest request,
+    SalesDbContext db) =>
+{
+    var lead = await db.Leads.FirstOrDefaultAsync(l => l.Id == leadId);
+    if (lead is null) return Results.NotFound(new { message = "Lead not found." });
+    if (lead.Status is LeadStatus.Booked or LeadStatus.Lost)
+        return Results.BadRequest(new { message = "Cannot schedule follow-up for a closed lead." });
+    if (!DateTimeOffset.TryParse(request.NextFollowUpUtc, out var parsed))
+        return Results.BadRequest(new { message = "Provide a valid ISO date/time including timezone." });
+    var due = parsed.UtcDateTime;
+    if (due < DateTime.UtcNow.AddMinutes(-1))
+        return Results.BadRequest(new { message = "Follow-up must be scheduled for the present or future." });
+    lead.NextFollowUpUtc = due;
+    lead.UpdatedAtUtc = DateTime.UtcNow;
+    await db.SaveChangesAsync();
+    return Results.Ok(LeadDto.From(lead));
+}).RequireAuthorization("LeadWrite");
+
 app.MapGet("/api/intelligence/leads/{id:guid}/reviews", async (
     Guid id,
     SalesDbContext db) =>
@@ -546,6 +653,7 @@ public record UpdateLeadRequest(string Status, string? AssignedTo, string? Notes
 public record CreateUserRequest(string? FullName, string? Email, string? Password, string? Role);
 public record SetUserActiveRequest(bool IsActive);
 public record CreateRecommendationReviewRequest(string? RecommendationKey, string? RecommendationText);
+public record ScheduleFollowUpRequest(string? NextFollowUpUtc);
 
 public static class PasswordHasher
 {

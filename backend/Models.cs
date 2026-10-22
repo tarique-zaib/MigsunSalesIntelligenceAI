@@ -34,6 +34,18 @@ public sealed class Lead
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }
 
+public sealed class FollowUpAction
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid LeadId { get; set; }
+    public DateTime DueAtUtc { get; set; }
+    public bool IsCompleted { get; set; }
+    public DateTime? CompletedAtUtc { get; set; }
+    public Guid? CompletedByUserId { get; set; }
+    public string? CompletedByName { get; set; }
+    public Lead? Lead { get; set; }
+}
+
 public sealed class RecommendationReview
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -53,6 +65,7 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
     public DbSet<DemoUser> Users => Set<DemoUser>();
     public DbSet<Lead> Leads => Set<Lead>();
     public DbSet<RecommendationReview> RecommendationReviews => Set<RecommendationReview>();
+    public DbSet<FollowUpAction> FollowUpActions => Set<FollowUpAction>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -62,6 +75,15 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         modelBuilder.Entity<Lead>().Property(x => x.Status).HasConversion<string>();
         modelBuilder.Entity<Lead>().HasIndex(x => x.Status);
         modelBuilder.Entity<Lead>().HasIndex(x => x.NextFollowUpUtc);
+
+        modelBuilder.Entity<FollowUpAction>().Property(x => x.CompletedByName).HasMaxLength(120);
+        modelBuilder.Entity<FollowUpAction>().HasIndex(x => new { x.LeadId, x.DueAtUtc }).IsUnique();
+        modelBuilder.Entity<FollowUpAction>().HasIndex(x => x.CompletedAtUtc);
+        modelBuilder.Entity<FollowUpAction>()
+            .HasOne(x => x.Lead)
+            .WithMany()
+            .HasForeignKey(x => x.LeadId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<RecommendationReview>().Property(x => x.RecommendationKey).HasMaxLength(120);
         modelBuilder.Entity<RecommendationReview>().Property(x => x.RecommendationText).HasMaxLength(1000);

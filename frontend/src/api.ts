@@ -72,6 +72,36 @@ export type Analytics = {
     score: number;
   }[];
   fictionalData: boolean;
+  rangeDays?: 30 | 90 | 365;
+  fromUtc?: string;
+  toUtc?: string;
+  monthlyLeadCreation?: { month: string; leads: number }[];
+  monthlyStatusTransitions?: {
+    month: string;
+    transitions: number;
+    booked: number;
+    lost: number;
+    siteVisits: number;
+  }[];
+  projectPerformance?: {
+    project: string;
+    leads: number;
+    booked: number;
+    pipelineBudgetLakhs: number;
+    bookedBudgetLakhs: number;
+    conversionPercent: number;
+  }[];
+  executivePerformance?: {
+    assignedTo: string;
+    leads: number;
+    booked: number;
+    pipelineBudgetLakhs: number;
+    bookedBudgetLakhs: number;
+    conversionPercent: number;
+  }[];
+  pipelineBudgetLakhs?: number;
+  bookedBudgetLakhs?: number;
+  statusHistoryCoverage?: string;
 };
 export type NewLead = {
   fullName: string;

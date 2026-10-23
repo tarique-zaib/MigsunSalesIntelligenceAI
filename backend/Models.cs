@@ -34,6 +34,17 @@ public sealed class Lead
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }
 
+
+public sealed class LeadStatusHistory
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid LeadId { get; set; }
+    public LeadStatus Status { get; set; }
+    public DateTime ChangedAtUtc { get; set; } = DateTime.UtcNow;
+    public string ChangedBy { get; set; } = "System";
+    public Lead? Lead { get; set; }
+}
+
 public sealed class FollowUpAction
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -64,6 +75,7 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
 {
     public DbSet<DemoUser> Users => Set<DemoUser>();
     public DbSet<Lead> Leads => Set<Lead>();
+    public DbSet<LeadStatusHistory> LeadStatusHistory => Set<LeadStatusHistory>();
     public DbSet<RecommendationReview> RecommendationReviews => Set<RecommendationReview>();
     public DbSet<FollowUpAction> FollowUpActions => Set<FollowUpAction>();
 
@@ -75,6 +87,15 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
         modelBuilder.Entity<Lead>().Property(x => x.Status).HasConversion<string>();
         modelBuilder.Entity<Lead>().HasIndex(x => x.Status);
         modelBuilder.Entity<Lead>().HasIndex(x => x.NextFollowUpUtc);
+
+        modelBuilder.Entity<LeadStatusHistory>().Property(x => x.Status).HasConversion<string>();
+        modelBuilder.Entity<LeadStatusHistory>().Property(x => x.ChangedBy).HasMaxLength(120);
+        modelBuilder.Entity<LeadStatusHistory>().HasIndex(x => new { x.LeadId, x.ChangedAtUtc });
+        modelBuilder.Entity<LeadStatusHistory>()
+            .HasOne(x => x.Lead)
+            .WithMany()
+            .HasForeignKey(x => x.LeadId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<FollowUpAction>().Property(x => x.CompletedByName).HasMaxLength(120);
         modelBuilder.Entity<FollowUpAction>().HasIndex(x => new { x.LeadId, x.DueAtUtc }).IsUnique();

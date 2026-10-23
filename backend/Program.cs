@@ -8,6 +8,7 @@ using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using MigsunSales.Api;
+using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -57,7 +58,32 @@ builder.Services.AddCors(options => options.AddPolicy("frontend", policy =>
           .AllowAnyHeader().AllowAnyMethod()));
 builder.Services.AddEndpointsApiExplorer();
 
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Enter your JWT access token."
+    });
+
+    options.AddSecurityRequirement(document =>
+        new OpenApiSecurityRequirement
+        {
+            [new OpenApiSecuritySchemeReference("Bearer", document)] =
+    new List<string> { "Bearer" }
+        });
+});
+
 var app = builder.Build();
+
+
+app.UseSwagger();
+app.UseSwaggerUI();
+
 
 app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
 {
@@ -298,6 +324,28 @@ app.MapGet("/api/leads/{id:guid}", async (Guid id, SalesDbContext db) =>
     return lead is null ? Results.NotFound() : Results.Ok(LeadDto.From(lead));
 }).RequireAuthorization("LeadRead");
 
+app.MapGet("/api/leads/{id:guid}/status-history", async (Guid id, SalesDbContext db) =>
+{
+    var leadExists = await db.Leads.AsNoTracking().AnyAsync(l => l.Id == id);
+    if (!leadExists)
+        return Results.NotFound(new { message = "Lead not found." });
+
+    var history = await db.LeadStatusHistory
+        .AsNoTracking()
+        .Where(h => h.LeadId == id)
+        .OrderBy(h => h.ChangedAtUtc)
+        .ThenBy(h => h.Id)
+        .Select(h => new
+        {
+            status = h.Status.ToString(),
+            changedAtUtc = h.ChangedAtUtc,
+            changedBy = h.ChangedBy
+        })
+        .ToListAsync();
+
+    return Results.Ok(history);
+}).RequireAuthorization("LeadRead");
+
 app.MapPost("/api/leads", async (CreateLeadRequest request, SalesDbContext db) =>
 {
     if (string.IsNullOrWhiteSpace(request.FullName) || string.IsNullOrWhiteSpace(request.Email) ||
@@ -325,17 +373,34 @@ app.MapPost("/api/leads", async (CreateLeadRequest request, SalesDbContext db) =
         UpdatedAtUtc = DateTime.UtcNow
     };
     db.Leads.Add(lead);
+    db.LeadStatusHistory.Add(new LeadStatusHistory
+    {
+        LeadId = lead.Id,
+        Status = lead.Status,
+        ChangedAtUtc = lead.CreatedAtUtc,
+        ChangedBy = "Lead created"
+    });
     await db.SaveChangesAsync();
     return Results.Created($"/api/leads/{lead.Id}", LeadDto.From(lead));
 }).RequireAuthorization("LeadWrite");
 
-app.MapPut("/api/leads/{id:guid}", async (Guid id, UpdateLeadRequest request, SalesDbContext db) =>
+app.MapPut("/api/leads/{id:guid}", async (Guid id, UpdateLeadRequest request, SalesDbContext db, ClaimsPrincipal principal) =>
 {
     var lead = await db.Leads.FirstOrDefaultAsync(l => l.Id == id);
     if (lead is null) return Results.NotFound();
     if (!Enum.TryParse<LeadStatus>(request.Status, true, out var status))
         return Results.BadRequest(new { message = "Invalid status." });
 
+    if (lead.Status != status)
+    {
+        db.LeadStatusHistory.Add(new LeadStatusHistory
+        {
+            LeadId = lead.Id,
+            Status = status,
+            ChangedAtUtc = DateTime.UtcNow,
+            ChangedBy = principal.Identity?.Name ?? principal.FindFirstValue(ClaimTypes.Email) ?? "Workspace user"
+        });
+    }
     lead.Status = status;
     lead.AssignedTo = string.IsNullOrWhiteSpace(request.AssignedTo) ? lead.AssignedTo : request.AssignedTo.Trim();
     lead.Notes = request.Notes?.Trim() ?? lead.Notes;
@@ -356,11 +421,36 @@ app.MapGet("/api/leads/{id:guid}/follow-up-draft", async (Guid id, string? objec
     return Results.Ok(new { leadId = lead.Id, objective = objective ?? "Based on lead stage", draft, generatedBy = "Deterministic rule-based copilot", requiresHumanReview = true, fictionalData = true });
 }).RequireAuthorization("LeadRead");
 
-app.MapGet("/api/analytics", async (SalesDbContext db) =>
+app.MapGet("/api/analytics", async (int? days, SalesDbContext db) =>
 {
+    // Keep the API contract explicit: the frontend offers only 30, 90, or 365 days.
+    if (days.HasValue && days.Value is not (30 or 90 or 365))
+    {
+        return Results.BadRequest(new
+        {
+            message = "The days parameter must be 30, 90, or 365."
+        });
+    }
+
+    // Defaults to the last 90 days. Existing snapshot fields remain available for compatibility.
+    var rangeDays = days ?? 90;
+    var now = DateTime.UtcNow;
+    var fromUtc = now.AddDays(-rangeDays);
+
     var leads = await db.Leads.AsNoTracking().ToListAsync();
-    var stages = Enum.GetValues<LeadStatus>().Select(s => new { stage = s.ToString(), count = leads.Count(l => l.Status == s) }).ToArray();
-    var sources = Enum.GetValues<LeadSource>().Select(s => new { source = s.ToString(), count = leads.Count(l => l.Source == s) }).ToArray();
+    // The creation row establishes the lead's starting status; it is not a status transition.
+    var history = await db.LeadStatusHistory.AsNoTracking()
+        .Where(h => h.ChangedAtUtc >= fromUtc && h.ChangedAtUtc <= now && h.ChangedBy != "Lead created")
+        .ToListAsync();
+
+    var stages = Enum.GetValues<LeadStatus>()
+        .Select(s => new { stage = s.ToString(), count = leads.Count(l => l.Status == s) })
+        .ToArray();
+
+    var sources = Enum.GetValues<LeadSource>()
+        .Select(s => new { source = s.ToString(), count = leads.Count(l => l.Source == s) })
+        .ToArray();
+
     var sourcePerformance = sources.Select(source =>
     {
         var sourceLeads = leads.Where(l => l.Source.ToString() == source.source).ToArray();
@@ -373,13 +463,86 @@ app.MapGet("/api/analytics", async (SalesDbContext db) =>
             conversionPercent = sourceLeads.Length == 0 ? 0 : Math.Round(sourceBooked * 100.0 / sourceLeads.Length, 1)
         };
     }).ToArray();
+
     var total = leads.Count;
     var booked = leads.Count(l => l.Status == LeadStatus.Booked);
-    var now = DateTime.UtcNow;
+    var activeLeads = leads.Where(l => l.Status != LeadStatus.Booked && l.Status != LeadStatus.Lost).ToArray();
+    var nowMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
     var overdue = leads.Where(l => l.NextFollowUpUtc.HasValue && l.NextFollowUpUtc.Value < now && l.Status != LeadStatus.Booked && l.Status != LeadStatus.Lost)
         .Select(l => new { l.Id, l.FullName, l.ProjectName, l.AssignedTo, nextFollowUpUtc = l.NextFollowUpUtc, status = l.Status.ToString(), score = LeadScoring.Score(l) })
         .OrderByDescending(l => l.score).ToArray();
-    return Results.Ok(new { totalLeads = total, booked, conversionPercent = total == 0 ? 0 : Math.Round(booked * 100.0 / total, 1), stages, sources, sourcePerformance, overdueFollowUps = overdue, fictionalData = true });
+
+    var months = Enumerable.Range(0, rangeDays <= 30 ? 2 : rangeDays <= 90 ? 4 : 13)
+        .Select(offset => new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(-offset))
+        .OrderBy(d => d)
+        .ToArray();
+
+    var monthlyLeadCreation = months.Select(month =>
+    {
+        var next = month.AddMonths(1);
+        // Respect the exact selected window, including the partial first month.
+        var count = leads.Count(l => l.CreatedAtUtc >= month && l.CreatedAtUtc < next &&
+                                     l.CreatedAtUtc >= fromUtc && l.CreatedAtUtc <= now);
+        return new { month = month.ToString("yyyy-MM"), leads = count };
+    }).ToArray();
+
+    var monthlyStatusTransitions = months.Select(month =>
+    {
+        var next = month.AddMonths(1);
+        var monthEvents = history.Where(h => h.ChangedAtUtc >= month && h.ChangedAtUtc < next).ToArray();
+        return new
+        {
+            month = month.ToString("yyyy-MM"),
+            transitions = monthEvents.Length,
+            booked = monthEvents.Count(h => h.Status == LeadStatus.Booked),
+            lost = monthEvents.Count(h => h.Status == LeadStatus.Lost),
+            siteVisits = monthEvents.Count(h => h.Status == LeadStatus.SiteVisit)
+        };
+    }).ToArray();
+
+    var projectPerformance = leads.GroupBy(l => string.IsNullOrWhiteSpace(l.ProjectName) ? "Unspecified" : l.ProjectName.Trim())
+        .Select(g => new
+        {
+            project = g.Key,
+            leads = g.Count(),
+            booked = g.Count(l => l.Status == LeadStatus.Booked),
+            pipelineBudgetLakhs = g.Where(l => l.Status != LeadStatus.Booked && l.Status != LeadStatus.Lost).Sum(l => l.BudgetLakhs ?? 0m),
+            bookedBudgetLakhs = g.Where(l => l.Status == LeadStatus.Booked).Sum(l => l.BudgetLakhs ?? 0m),
+            conversionPercent = g.Count() == 0 ? 0 : Math.Round(g.Count(l => l.Status == LeadStatus.Booked) * 100.0 / g.Count(), 1)
+        }).OrderByDescending(x => x.leads).ToArray();
+
+    var executivePerformance = leads.GroupBy(l => string.IsNullOrWhiteSpace(l.AssignedTo) ? "Unassigned" : l.AssignedTo.Trim())
+        .Select(g => new
+        {
+            assignedTo = g.Key,
+            leads = g.Count(),
+            booked = g.Count(l => l.Status == LeadStatus.Booked),
+            pipelineBudgetLakhs = g.Where(l => l.Status != LeadStatus.Booked && l.Status != LeadStatus.Lost).Sum(l => l.BudgetLakhs ?? 0m),
+            bookedBudgetLakhs = g.Where(l => l.Status == LeadStatus.Booked).Sum(l => l.BudgetLakhs ?? 0m),
+            conversionPercent = g.Count() == 0 ? 0 : Math.Round(g.Count(l => l.Status == LeadStatus.Booked) * 100.0 / g.Count(), 1)
+        }).OrderByDescending(x => x.leads).ToArray();
+
+    return Results.Ok(new
+    {
+        totalLeads = total,
+        booked,
+        conversionPercent = total == 0 ? 0 : Math.Round(booked * 100.0 / total, 1),
+        stages,
+        sources,
+        sourcePerformance,
+        overdueFollowUps = overdue,
+        fictionalData = true,
+        rangeDays,
+        fromUtc,
+        toUtc = now,
+        monthlyLeadCreation,
+        monthlyStatusTransitions,
+        projectPerformance,
+        executivePerformance,
+        pipelineBudgetLakhs = activeLeads.Sum(l => l.BudgetLakhs ?? 0m),
+        bookedBudgetLakhs = leads.Where(l => l.Status == LeadStatus.Booked).Sum(l => l.BudgetLakhs ?? 0m),
+        statusHistoryCoverage = "Status history is tracked from feature deployment onward; older stage transition dates are not reconstructed."
+    });
 }).RequireAuthorization("LeadRead");
 
 app.MapGet("/api/admin/users", async (SalesDbContext db) =>

@@ -132,6 +132,7 @@ export default function App() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [analyticsDays, setAnalyticsDays] = useState<30 | 90 | 365>(90);
   const [actionTasks, setActionTasks] = useState<ActionCenterTask[]>([]);
   const [actionCompletedToday, setActionCompletedToday] = useState(0);
   const [actionLoading, setActionLoading] = useState(false);
@@ -161,11 +162,16 @@ export default function App() {
     setActionLoading(true);
     setActionError("");
     try {
-      const result = await api<ActionCenterResponse>("/api/action-center", auth);
+      const result = await api<ActionCenterResponse>(
+        "/api/action-center",
+        auth,
+      );
       setActionTasks(result.tasks);
       setActionCompletedToday(result.completedToday);
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Could not load Action Center");
+      setActionError(
+        e instanceof Error ? e.message : "Could not load Action Center",
+      );
     } finally {
       setActionLoading(false);
     }
@@ -176,11 +182,15 @@ export default function App() {
     setActionBusyIds((ids) => [...ids, task.leadId]);
     setActionError("");
     try {
-      await api(`/api/action-center/${task.leadId}/complete`, token, { method: "POST" });
+      await api(`/api/action-center/${task.leadId}/complete`, token, {
+        method: "POST",
+      });
       await loadActionCenter(token);
       notify(`Follow-up completed for ${task.fullName}.`);
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Could not complete follow-up");
+      setActionError(
+        e instanceof Error ? e.message : "Could not complete follow-up",
+      );
     } finally {
       setActionBusyIds((ids) => ids.filter((id) => id !== task.leadId));
     }
@@ -203,7 +213,9 @@ export default function App() {
       await Promise.all([loadActionCenter(token), loadData(token)]);
       notify("Follow-up scheduled.");
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Could not schedule follow-up");
+      setActionError(
+        e instanceof Error ? e.message : "Could not schedule follow-up",
+      );
     } finally {
       setActionBusyIds((ids) => ids.filter((id) => id !== leadId));
     }
@@ -279,29 +291,34 @@ export default function App() {
   const [mobileNav, setMobileNav] = useState(false);
 
   const selectedLead = leads.find((l) => l.id === selectedId) || null;
-  const loadData = useCallback(async (auth: string) => {
-    setLoading(true);
-    setError("");
-    try {
-      const [d, l, a] = await Promise.all([
-        api<Dashboard>("/api/dashboard", auth),
-        api<Lead[]>("/api/leads", auth),
-        api<Analytics>("/api/analytics", auth),
-      ]);
-      setDashboard(d);
-      setLeads(l);
-      setAnalytics(a);
-      setSelectedId((current) =>
-        current && l.some((x) => x.id === current) ? current : l[0]?.id || null,
-      );
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Unable to load data";
-      setError(message);
-      if (message.includes("Session expired")) signOut();
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadData = useCallback(
+    async (auth: string, days: 30 | 90 | 365 = analyticsDays) => {
+      setLoading(true);
+      setError("");
+      try {
+        const [d, l, a] = await Promise.all([
+          api<Dashboard>("/api/dashboard", auth),
+          api<Lead[]>("/api/leads", auth),
+          api<Analytics>(`/api/analytics?days=${days}`, auth),
+        ]);
+        setDashboard(d);
+        setLeads(l);
+        setAnalytics(a);
+        setSelectedId((current) =>
+          current && l.some((x) => x.id === current)
+            ? current
+            : l[0]?.id || null,
+        );
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Unable to load data";
+        setError(message);
+        if (message.includes("Session expired")) signOut();
+      } finally {
+        setLoading(false);
+      }
+    },
+    [analyticsDays],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -636,6 +653,7 @@ export default function App() {
               )}
               {page === "Leads" && (
                 <LeadsPage
+                  token={token}
                   leads={filteredLeads}
                   selectedLead={selectedLead}
                   search={search}
@@ -671,7 +689,12 @@ export default function App() {
                 />
               )}
               {page === "Analytics" && (
-                <AnalyticsPage analytics={analytics} leads={leads} />
+                <AnalyticsPage
+                  analytics={analytics}
+                  leads={leads}
+                  rangeDays={analyticsDays}
+                  onRangeChange={setAnalyticsDays}
+                />
               )}
               {page === "Sales Intelligence" && (
                 <SalesIntelligencePage
@@ -713,7 +736,10 @@ export default function App() {
                   onRefresh={() => token && void loadActionCenter(token)}
                   onComplete={completeFollowUp}
                   onSchedule={scheduleFollowUp}
-                  onViewLead={(id) => { setSelectedId(id); setPage("Leads"); }}
+                  onViewLead={(id) => {
+                    setSelectedId(id);
+                    setPage("Leads");
+                  }}
                 />
               )}
               {page === "User Management" && user?.role === "Admin" && (
@@ -928,8 +954,9 @@ function Overview({
   onSelect: (id: string) => void;
 }) {
   const priorityLeads = [...leads]
+    .filter((lead) => !["Booked", "Lost"].includes(lead.status))
     .sort((a, b) => b.score - a.score)
-    .slice(0, 4);
+    .slice(0, 5);
   const stages = [
     "New",
     "Contacted",
@@ -939,114 +966,291 @@ function Overview({
     "Booked",
     "Lost",
   ];
-  const counts = stages.map((s) => ({
-    stage: s,
-    count: leads.filter((l) => l.status === s).length,
+  const counts = stages.map((stage) => ({
+    stage,
+    count: leads.filter((lead) => lead.status === stage).length,
   }));
-  const max = Math.max(1, ...counts.map((c) => c.count));
+  const maxStageCount = Math.max(1, ...counts.map((item) => item.count));
+  const openLeads = leads.filter(
+    (lead) => !["Booked", "Lost"].includes(lead.status),
+  );
+  const qualifiedLeads = leads.filter((lead) =>
+    ["Qualified", "SiteVisit", "Negotiation"].includes(lead.status),
+  );
+  const bookedLeads = leads.filter((lead) => lead.status === "Booked");
+  const overdueLeads = openLeads.filter(
+    (lead) =>
+      lead.nextFollowUpUtc && new Date(lead.nextFollowUpUtc) < new Date(),
+  );
+  const unassignedLeads = openLeads.filter(
+    (lead) =>
+      !lead.assignedTo || lead.assignedTo.toLowerCase() === "unassigned",
+  );
+  const pipelineBudget = openLeads.reduce(
+    (sum, lead) => sum + (lead.budgetLakhs ?? 0),
+    0,
+  );
+  const conversion = leads.length
+    ? Math.round((bookedLeads.length / leads.length) * 100)
+    : 0;
+  const today = new Date();
+  const followUpDays = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(today);
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() + index);
+    const nextDay = new Date(date);
+    nextDay.setDate(nextDay.getDate() + 1);
+    return {
+      date,
+      label:
+        index === 0
+          ? "Today"
+          : date.toLocaleDateString("en-IN", { weekday: "short" }),
+      count: openLeads.filter((lead) => {
+        if (!lead.nextFollowUpUtc) return false;
+        const followUp = new Date(lead.nextFollowUpUtc);
+        return followUp >= date && followUp < nextDay;
+      }).length,
+    };
+  });
+  const maxFollowUps = Math.max(1, ...followUpDays.map((day) => day.count));
+  const insights = [
+    overdueLeads.length > 0
+      ? {
+          title: `${overdueLeads.length} overdue follow-up${overdueLeads.length === 1 ? "" : "s"}`,
+          detail:
+            "Review these prospects first to prevent missed opportunities.",
+          action: "Open Action Center",
+          page: "Action Center" as Page,
+          icon: AlertCircle,
+          tone: "warning",
+        }
+      : {
+          title: "No overdue follow-ups",
+          detail:
+            "Keep the pipeline healthy by maintaining scheduled next steps.",
+          action: "View Action Center",
+          page: "Action Center" as Page,
+          icon: Check,
+          tone: "positive",
+        },
+    unassignedLeads.length > 0
+      ? {
+          title: `${unassignedLeads.length} open lead${unassignedLeads.length === 1 ? "" : "s"} unassigned`,
+          detail: "Assign an owner so each enquiry has a clear next step.",
+          action: "Manage leads",
+          page: "Leads" as Page,
+          icon: Users,
+          tone: "warning",
+        }
+      : {
+          title: "Open leads have owners",
+          detail: "Continue tracking ownership and follow-up dates.",
+          action: "Manage leads",
+          page: "Leads" as Page,
+          icon: Users,
+          tone: "positive",
+        },
+    qualifiedLeads.length > 0
+      ? {
+          title: `${qualifiedLeads.length} qualified or later-stage leads`,
+          detail: "Prioritise site visits and negotiation conversations.",
+          action: "View pipeline",
+          page: "Pipeline" as Page,
+          icon: Target,
+          tone: "neutral",
+        }
+      : {
+          title: "Qualification opportunity",
+          detail:
+            "Review new enquiries and capture budget and purchase timeline.",
+          action: "Review leads",
+          page: "Leads" as Page,
+          icon: Target,
+          tone: "neutral",
+        },
+  ];
   return (
     <>
       <PageHeading
         eyebrow="OVERVIEW / SALES OPERATIONS"
-        title="Good morning, team."
-        subtitle="Here's what's happening across your property sales portfolio today."
+        title="Sales performance at a glance"
+        subtitle="A focused view of pipeline health, follow-up workload, and next actions."
         action={
           <button className="primary-btn" onClick={() => onNavigate("Leads")}>
             <Plus size={17} /> Manage leads
           </button>
         }
       />
-      <div className="metrics-grid">
+      <div className="metrics-grid overview-kpis">
         <MetricCard
           label="Total leads"
           value={dashboard?.totalLeads ?? leads.length}
-          note="Across the portfolio"
+          note="All current records"
           icon={Users}
         />
         <MetricCard
-          label="High-priority leads"
-          value={
-            dashboard?.highPriority ??
-            leads.filter((l) => l.priority === "High").length
-          }
-          note="Based on rule score"
+          label="Qualified pipeline"
+          value={qualifiedLeads.length}
+          note="Qualified · site visit · negotiation"
           icon={Target}
         />
         <MetricCard
-          label="Site visits this week"
-          value={dashboard?.siteVisitsThisWeek ?? 0}
-          note="Updated in last 7 days"
-          icon={CalendarClock}
+          label="Bookings this month"
+          value={dashboard?.bookingsThisMonth ?? bookedLeads.length}
+          note="Recorded booking outcomes"
+          icon={Check}
         />
         <MetricCard
-          label="Overdue follow-ups"
-          value={dashboard?.overdueFollowUps ?? 0}
-          note="Requires review"
-          icon={AlertCircle}
+          label="Lead conversion"
+          value={`${conversion}%`}
+          note={`${bookedLeads.length} booked of ${leads.length} leads`}
+          icon={Activity}
         />
       </div>
-      <div className="overview-grid">
-        <section className="panel pipeline-panel">
+      <div className="overview-secondary-kpis">
+        <button
+          className="secondary-kpi"
+          onClick={() => onNavigate("Action Center")}
+        >
+          <span className="secondary-kpi-icon warning">
+            <AlertCircle size={17} />
+          </span>
+          <span>
+            <small>Overdue follow-ups</small>
+            <strong>
+              {dashboard?.overdueFollowUps ?? overdueLeads.length}
+            </strong>
+          </span>
+          <ArrowUpRight size={16} />
+        </button>
+        <button className="secondary-kpi" onClick={() => onNavigate("Leads")}>
+          <span className="secondary-kpi-icon">
+            <Users size={17} />
+          </span>
+          <span>
+            <small>Unassigned open leads</small>
+            <strong>{unassignedLeads.length}</strong>
+          </span>
+          <ArrowUpRight size={16} />
+        </button>
+        <div className="secondary-kpi budget-kpi">
+          <span className="secondary-kpi-icon">
+            <Building2 size={17} />
+          </span>
+          <span>
+            <small>Known open pipeline budget</small>
+            <strong>₹{pipelineBudget.toLocaleString("en-IN")}L</strong>
+          </span>
+          <span className="kpi-caption">Excludes unspecified budgets</span>
+        </div>
+      </div>
+      <div className="dashboard-visual-grid">
+        <section className="panel dashboard-panel">
           <div className="panel-heading">
             <div>
-              <h3>Lead pipeline</h3>
-              <p>Current opportunities by stage</p>
+              <h3>Pipeline health</h3>
+              <p>Current lead count by stage</p>
             </div>
             <button className="text-btn" onClick={() => onNavigate("Pipeline")}>
-              View pipeline <ArrowUpRight size={14} />
+              Explore pipeline <ArrowUpRight size={14} />
             </button>
           </div>
-          <div className="stage-bars">
-            {counts.map((c) => (
-              <div className="stage-row" key={c.stage}>
-                <span>{displayStatus(c.stage)}</span>
+          <div className="stage-bars dashboard-stage-bars">
+            {counts.map((item) => (
+              <div className="stage-row" key={item.stage}>
+                <span>{displayStatus(item.stage)}</span>
                 <div className="bar-track">
                   <div
-                    className={`bar-fill bar-${c.stage.toLowerCase()}`}
-                    style={{ width: `${(c.count / max) * 100}%` }}
+                    className={`bar-fill bar-${item.stage.toLowerCase()}`}
+                    style={{ width: `${(item.count / maxStageCount) * 100}%` }}
                   />
                 </div>
-                <strong>{c.count}</strong>
+                <strong>{item.count}</strong>
               </div>
             ))}
           </div>
           <div className="panel-footnote">
-            Counts reflect current workspace records.
+            Live distribution from current workspace records.
           </div>
         </section>
-        <section className="panel">
+        <section className="panel dashboard-panel">
+          <div className="panel-heading">
+            <div>
+              <h3>Follow-up outlook</h3>
+              <p>Scheduled open-lead follow-ups for the next 7 days</p>
+            </div>
+            <span className="tiny-pill">
+              {followUpDays.reduce((sum, day) => sum + day.count, 0)} scheduled
+            </span>
+          </div>
+          <div className="followup-trend">
+            {followUpDays.map((day) => (
+              <div className="followup-trend-day" key={day.date.toISOString()}>
+                <div className="followup-trend-bar-area">
+                  <span className="followup-trend-count">
+                    {day.count || ""}
+                  </span>
+                  <div
+                    className={`followup-trend-bar ${day.label === "Today" ? "is-today" : ""}`}
+                    style={{
+                      height: `${Math.max(day.count ? 12 : 4, (day.count / maxFollowUps) * 100)}%`,
+                    }}
+                  />
+                </div>
+                <span className="followup-trend-label">{day.label}</span>
+              </div>
+            ))}
+          </div>
+          <div className="panel-footnote">
+            This is a scheduled-activity outlook, not a historical sales
+            forecast.
+          </div>
+        </section>
+      </div>
+      <div className="dashboard-bottom-grid">
+        <section className="panel dashboard-panel">
           <div className="panel-heading">
             <div>
               <h3>Priority queue</h3>
-              <p>Start with the strongest signals</p>
+              <p>Highest-scoring open leads to review</p>
             </div>
             <span className="tiny-pill">{priorityLeads.length} leads</span>
           </div>
           <div className="priority-list">
-            {priorityLeads.map((l) => (
+            {priorityLeads.map((lead) => (
               <button
                 className="priority-item"
-                key={l.id}
-                onClick={() => onSelect(l.id)}
+                key={lead.id}
+                onClick={() => onSelect(lead.id)}
               >
                 <div className="lead-avatar">
-                  {l.fullName
+                  {lead.fullName
                     .split(" ")
-                    .map((n) => n[0])
+                    .map((part) => part[0])
                     .slice(0, 2)
                     .join("")}
                 </div>
                 <div className="priority-copy">
-                  <strong>{l.fullName}</strong>
-                  <span>{l.projectName}</span>
-                  <small>Follow-up: {dateLabel(l.nextFollowUpUtc)}</small>
+                  <strong>{lead.fullName}</strong>
+                  <span>
+                    {lead.projectName} · {displayStatus(lead.status)}
+                  </span>
+                  <small>Follow-up: {dateLabel(lead.nextFollowUpUtc)}</small>
                 </div>
                 <div className="priority-score">
-                  <strong>{l.score}</strong>
+                  <strong>{lead.score}</strong>
                   <span>score</span>
                 </div>
               </button>
             ))}
+            {priorityLeads.length === 0 && (
+              <div className="empty-state">
+                <Users size={22} />
+                <strong>No open leads</strong>
+                <span>New enquiries will appear here.</span>
+              </div>
+            )}
           </div>
           <button
             className="secondary-btn full-btn"
@@ -1055,35 +1259,57 @@ function Overview({
             Open all leads <ArrowUpRight size={15} />
           </button>
         </section>
-      </div>
-      <div className="insight-strip">
-        <div className="insight-icon">
-          <Sparkles size={20} />
-        </div>
-        <div>
-          <strong>Rule-based insight</strong>
-          <p>
-            {
-              leads.filter(
-                (l) =>
-                  l.nextFollowUpUtc &&
-                  new Date(l.nextFollowUpUtc) < new Date() &&
-                  !["Booked", "Lost"].includes(l.status),
-              ).length
-            }{" "}
-            active lead(s) have an overdue follow-up. Review ownership and next
-            steps before contacting buyers.
-          </p>
-        </div>
-        <button className="text-btn" onClick={() => onNavigate("Leads")}>
-          Review now <ArrowUpRight size={14} />
-        </button>
+        <section className="panel dashboard-panel">
+          <div className="panel-heading">
+            <div>
+              <h3>Recommended actions</h3>
+              <p>Rule-based signals from current records</p>
+            </div>
+            <Sparkles size={18} className="dashboard-sparkle" />
+          </div>
+          <div className="action-insight-list">
+            {insights.map((insight) => {
+              const InsightIcon = insight.icon;
+              return (
+                <div
+                  className={`action-insight ${insight.tone}`}
+                  key={insight.title}
+                >
+                  <div className="action-insight-icon">
+                    <InsightIcon size={17} />
+                  </div>
+                  <div className="action-insight-copy">
+                    <strong>{insight.title}</strong>
+                    <p>{insight.detail}</p>
+                    <button
+                      className="text-btn"
+                      onClick={() => onNavigate(insight.page)}
+                    >
+                      {insight.action} <ArrowUpRight size={13} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="dashboard-disclaimer">
+            <ShieldCheck size={14} /> Suggestions are deterministic rules, not
+            predictive AI. No customer messages are sent.
+          </div>
+        </section>
       </div>
     </>
   );
 }
 
+type LeadStatusHistoryEntry = {
+  status: string;
+  changedAtUtc: string;
+  changedBy: string;
+};
+
 function LeadsPage(props: {
+  token: string;
   leads: Lead[];
   selectedLead: Lead | null;
   search: string;
@@ -1101,6 +1327,7 @@ function LeadsPage(props: {
   draftLoading: boolean;
 }) {
   const {
+    token,
     leads,
     selectedLead,
     search,
@@ -1114,6 +1341,48 @@ function LeadsPage(props: {
     draft,
     draftLoading,
   } = props;
+  const [statusHistory, setStatusHistory] = useState<LeadStatusHistoryEntry[]>(
+    [],
+  );
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadStatusHistory() {
+      if (!selectedLead || !token) {
+        setStatusHistory([]);
+        setHistoryError("");
+        return;
+      }
+
+      setHistoryLoading(true);
+      setHistoryError("");
+      try {
+        const entries = await api<LeadStatusHistoryEntry[]>(
+          `/api/leads/${selectedLead.id}/status-history`,
+          token,
+        );
+        if (!cancelled) setStatusHistory(entries);
+      } catch (e) {
+        if (!cancelled) {
+          setHistoryError(
+            e instanceof Error ? e.message : "Could not load status history",
+          );
+          setStatusHistory([]);
+        }
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
+      }
+    }
+
+    void loadStatusHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLead?.id, token]);
+
   return (
     <>
       <PageHeading
@@ -1286,6 +1555,62 @@ function LeadsPage(props: {
                 value={dateLabel(selectedLead.nextFollowUpUtc)}
               />
             </div>
+            <section className="status-history-section">
+              <div className="copilot-mini-heading">
+                <Clock size={16} />
+                <strong>Status history</strong>
+                <span className="result-count">
+                  {statusHistory.length} events
+                </span>
+              </div>
+              {historyLoading ? (
+                <p className="muted-copy">Loading status history…</p>
+              ) : historyError ? (
+                <p className="form-error">{historyError}</p>
+              ) : statusHistory.length === 0 ? (
+                <p className="muted-copy">
+                  No status history is available for this lead.
+                </p>
+              ) : (
+                <ol className="status-history-list">
+                  {statusHistory.map((entry, index) => {
+                    const previous =
+                      index > 0 ? statusHistory[index - 1] : null;
+                    const isCreation = entry.changedBy === "Lead created";
+                    return (
+                      <li
+                        key={`${entry.changedAtUtc}-${index}`}
+                        className="status-history-item"
+                      >
+                        <span className="status-history-marker" />
+                        <div className="status-history-content">
+                          <strong>
+                            {isCreation
+                              ? `Lead created · ${displayStatus(entry.status)}`
+                              : `${previous ? displayStatus(previous.status) : "Status"} → ${displayStatus(entry.status)}`}
+                          </strong>
+                          <span>
+                            {new Date(entry.changedAtUtc).toLocaleString(
+                              "en-IN",
+                              {
+                                day: "2-digit",
+                                month: "short",
+                                year: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              },
+                            )}
+                          </span>
+                          <small>
+                            By {entry.changedBy || "Workspace user"}
+                          </small>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </section>
             <label className="select-label">
               Update pipeline stage
               <select
@@ -1575,9 +1900,13 @@ function Copilot({
 function AnalyticsPage({
   analytics,
   leads,
+  rangeDays,
+  onRangeChange,
 }: {
   analytics: Analytics | null;
   leads: Lead[];
+  rangeDays: 30 | 90 | 365;
+  onRangeChange: (days: 30 | 90 | 365) => void;
 }) {
   const stages = analytics?.stages || [];
   const sourcesData = analytics?.sources || [];
@@ -1588,7 +1917,24 @@ function AnalyticsPage({
       <PageHeading
         eyebrow="REPORTING / PERFORMANCE"
         title="Sales analytics"
-        subtitle="Understand the distribution of fictional leads by stage and acquisition source."
+        subtitle="Review current pipeline distribution and recorded historical trends."
+        action={
+          <label className="filter-box" style={{ gap: 8 }}>
+            <CalendarClock size={16} />
+            <span>Period</span>
+            <select
+              value={rangeDays}
+              onChange={(e) =>
+                onRangeChange(Number(e.target.value) as 30 | 90 | 365)
+              }
+              aria-label="Analytics date range"
+            >
+              <option value={30}>Last 30 days</option>
+              <option value={90}>Last 90 days</option>
+              <option value={365}>Last 365 days</option>
+            </select>
+          </label>
+        }
       />
       <div className="metrics-grid analytics-metrics">
         <MetricCard
@@ -1738,6 +2084,216 @@ function AnalyticsPage({
               ))}
             </div>
           )}
+        </section>
+      </div>
+      <div className="analytics-grid">
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h3>Monthly lead creation</h3>
+              <p>Based on each lead's recorded creation date</p>
+            </div>
+            <span className="tiny-pill">
+              {analytics?.rangeDays ?? rangeDays} days
+            </span>
+          </div>
+          {(analytics?.monthlyLeadCreation || []).length === 0 ? (
+            <div className="kanban-empty">
+              No monthly trend data returned by the API.
+            </div>
+          ) : (
+            <div className="analytics-bars">
+              {(analytics?.monthlyLeadCreation || []).map((item) => {
+                const max = Math.max(
+                  1,
+                  ...(analytics?.monthlyLeadCreation || []).map((x) => x.leads),
+                );
+                return (
+                  <div className="analytics-row" key={item.month}>
+                    <div className="analytics-label">
+                      <span>{item.month}</span>
+                      <strong>{item.leads}</strong>
+                    </div>
+                    <div className="bar-track">
+                      <div
+                        className="bar-fill bar-source"
+                        style={{ width: `${(item.leads / max) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h3>Recorded status transitions</h3>
+              <p>Events captured by the new history tracker</p>
+            </div>
+          </div>
+          {(analytics?.monthlyStatusTransitions || []).length === 0 ? (
+            <div className="kanban-empty">
+              No status history is available yet. New changes will be recorded
+              after the backend migration is applied.
+            </div>
+          ) : (
+            <div className="analytics-bars">
+              {(analytics?.monthlyStatusTransitions || []).map((item) => {
+                const max = Math.max(
+                  1,
+                  ...(analytics?.monthlyStatusTransitions || []).map(
+                    (x) => x.transitions,
+                  ),
+                );
+                return (
+                  <div className="analytics-row" key={item.month}>
+                    <div className="analytics-label">
+                      <span>
+                        {item.month} · Booked {item.booked} · Site visits{" "}
+                        {item.siteVisits}
+                      </span>
+                      <strong>{item.transitions} changes</strong>
+                    </div>
+                    <div className="bar-track">
+                      <div
+                        className="bar-fill bar-source"
+                        style={{ width: `${(item.transitions / max) * 100}%` }}
+                      />
+                    </div>
+                    <div className="muted-note">Lost: {item.lost}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+      <div className="analytics-grid">
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h3>Budget overview</h3>
+              <p>Lead budget estimates, not recognized revenue</p>
+            </div>
+          </div>
+          <div className="analytics-row">
+            <div className="analytics-label">
+              <span>Active pipeline budget</span>
+              <strong>
+                ₹{(analytics?.pipelineBudgetLakhs ?? 0).toLocaleString("en-IN")}
+                L
+              </strong>
+            </div>
+          </div>
+          <div className="analytics-row">
+            <div className="analytics-label">
+              <span>Booked-lead budget</span>
+              <strong>
+                ₹{(analytics?.bookedBudgetLakhs ?? 0).toLocaleString("en-IN")}L
+              </strong>
+            </div>
+          </div>
+          <p className="muted-note">
+            {analytics?.statusHistoryCoverage ||
+              "Status history coverage will be reported by the backend when available."}
+          </p>
+        </section>
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h3>Performance by project</h3>
+              <p>Current lead outcomes grouped by project</p>
+            </div>
+          </div>
+          {(analytics?.projectPerformance || []).length === 0 ? (
+            <div className="kanban-empty">
+              Project breakdown is not available from the current API response.
+            </div>
+          ) : (
+            <div className="analytics-bars">
+              {(analytics?.projectPerformance || []).map((item) => (
+                <div className="analytics-row" key={item.project}>
+                  <div className="analytics-label">
+                    <span>
+                      {item.project} · {item.booked}/{item.leads} booked
+                    </span>
+                    <strong>{item.conversionPercent}%</strong>
+                  </div>
+                  <div className="bar-track">
+                    <div
+                      className="bar-fill bar-source"
+                      style={{
+                        width: `${Math.max(0, Math.min(100, item.conversionPercent))}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="muted-note">
+                    Pipeline ₹{item.pipelineBudgetLakhs.toLocaleString("en-IN")}
+                    L · Booked budget ₹
+                    {item.bookedBudgetLakhs.toLocaleString("en-IN")}L
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+      <div className="analytics-grid">
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h3>Performance by executive</h3>
+              <p>Current assigned owner and pipeline</p>
+            </div>
+          </div>
+          {(analytics?.executivePerformance || []).length === 0 ? (
+            <div className="kanban-empty">
+              Executive breakdown is not available from the current API
+              response.
+            </div>
+          ) : (
+            <div className="analytics-bars">
+              {(analytics?.executivePerformance || []).map((item) => (
+                <div className="analytics-row" key={item.assignedTo}>
+                  <div className="analytics-label">
+                    <span>
+                      {item.assignedTo} · {item.booked}/{item.leads} booked
+                    </span>
+                    <strong>{item.conversionPercent}%</strong>
+                  </div>
+                  <div className="bar-track">
+                    <div
+                      className="bar-fill bar-source"
+                      style={{
+                        width: `${Math.max(0, Math.min(100, item.conversionPercent))}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="muted-note">
+                    Pipeline ₹{item.pipelineBudgetLakhs.toLocaleString("en-IN")}
+                    L · Booked budget ₹
+                    {item.bookedBudgetLakhs.toLocaleString("en-IN")}L
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h3>Reporting notes</h3>
+              <p>How to interpret these figures</p>
+            </div>
+          </div>
+          <p className="muted-note">
+            Lead creation uses the saved CreatedAtUtc field. Status transitions
+            are only reliable from the date status-history tracking is deployed.
+            Older stage dates are not reconstructed. Budget amounts are prospect
+            budget estimates, not confirmed revenue.
+          </p>
         </section>
       </div>
       <div className="insight-strip">
@@ -2100,25 +2656,60 @@ function ActionCenterPage({
   onViewLead: (leadId: string) => void;
 }) {
   const [filter, setFilter] = useState("All actions");
-  const [scheduleValues, setScheduleValues] = useState<Record<string, string>>({});
+  const [scheduleValues, setScheduleValues] = useState<Record<string, string>>(
+    {},
+  );
   const now = new Date();
-  const activeTasks = tasks.filter((task) => !["Booked", "Lost"].includes(task.status));
-  const dueToday = activeTasks.filter((task) => task.nextFollowUpUtc && new Date(task.nextFollowUpUtc).toDateString() === now.toDateString() && !task.isCompleted).length;
-  const overdue = activeTasks.filter((task) => task.nextFollowUpUtc && new Date(task.nextFollowUpUtc) < now && !task.isCompleted).length;
-  const highPriority = activeTasks.filter((task) => task.priority === "High" && !task.isCompleted).length;
-  const unassigned = activeTasks.filter((task) => !task.assignedTo || task.assignedTo.toLowerCase() === "unassigned").length;
+  const activeTasks = tasks.filter(
+    (task) => !["Booked", "Lost"].includes(task.status),
+  );
+  const dueToday = activeTasks.filter(
+    (task) =>
+      task.nextFollowUpUtc &&
+      new Date(task.nextFollowUpUtc).toDateString() === now.toDateString() &&
+      !task.isCompleted,
+  ).length;
+  const overdue = activeTasks.filter(
+    (task) =>
+      task.nextFollowUpUtc &&
+      new Date(task.nextFollowUpUtc) < now &&
+      !task.isCompleted,
+  ).length;
+  const highPriority = activeTasks.filter(
+    (task) => task.priority === "High" && !task.isCompleted,
+  ).length;
+  const unassigned = activeTasks.filter(
+    (task) =>
+      !task.assignedTo || task.assignedTo.toLowerCase() === "unassigned",
+  ).length;
   const sorted = [...activeTasks].sort((a, b) => {
     if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
-    const aDue = a.nextFollowUpUtc ? new Date(a.nextFollowUpUtc).getTime() : Number.MAX_SAFE_INTEGER;
-    const bDue = b.nextFollowUpUtc ? new Date(b.nextFollowUpUtc).getTime() : Number.MAX_SAFE_INTEGER;
+    const aDue = a.nextFollowUpUtc
+      ? new Date(a.nextFollowUpUtc).getTime()
+      : Number.MAX_SAFE_INTEGER;
+    const bDue = b.nextFollowUpUtc
+      ? new Date(b.nextFollowUpUtc).getTime()
+      : Number.MAX_SAFE_INTEGER;
     if (aDue !== bDue) return aDue - bDue;
     return b.score - a.score;
   });
   const visible = sorted.filter((task) => {
-    if (filter === "Overdue") return !!task.nextFollowUpUtc && new Date(task.nextFollowUpUtc) < now && !task.isCompleted;
-    if (filter === "Due today") return !!task.nextFollowUpUtc && new Date(task.nextFollowUpUtc).toDateString() === now.toDateString() && !task.isCompleted;
-    if (filter === "High priority") return task.priority === "High" && !task.isCompleted;
-    if (filter === "Unassigned") return !task.assignedTo || task.assignedTo.toLowerCase() === "unassigned";
+    if (filter === "Overdue")
+      return (
+        !!task.nextFollowUpUtc &&
+        new Date(task.nextFollowUpUtc) < now &&
+        !task.isCompleted
+      );
+    if (filter === "Due today")
+      return (
+        !!task.nextFollowUpUtc &&
+        new Date(task.nextFollowUpUtc).toDateString() === now.toDateString() &&
+        !task.isCompleted
+      );
+    if (filter === "High priority")
+      return task.priority === "High" && !task.isCompleted;
+    if (filter === "Unassigned")
+      return !task.assignedTo || task.assignedTo.toLowerCase() === "unassigned";
     if (filter === "Completed") return task.isCompleted;
     return true;
   });
@@ -2128,55 +2719,216 @@ function ActionCenterPage({
         eyebrow="DAILY SALES EXECUTION"
         title="Today's Action Center"
         subtitle="Prioritise follow-ups, close the loop on completed actions, and schedule the next contact. Changes are saved to the API."
-        action={<button className="primary-btn" onClick={onRefresh}><Activity size={16} /> Refresh actions</button>}
+        action={
+          <button className="primary-btn" onClick={onRefresh}>
+            <Activity size={16} /> Refresh actions
+          </button>
+        }
       />
       <div className="metrics-grid">
-        <MetricCard label="Overdue" value={overdue} note="Needs attention" icon={AlertCircle} />
-        <MetricCard label="Due today" value={dueToday} note="Scheduled for today" icon={CalendarClock} />
-        <MetricCard label="High priority" value={highPriority} note="Open high-score leads" icon={Target} />
-        <MetricCard label="Completed today" value={completedToday} note="Saved completion records" icon={Check} />
+        <MetricCard
+          label="Overdue"
+          value={overdue}
+          note="Needs attention"
+          icon={AlertCircle}
+        />
+        <MetricCard
+          label="Due today"
+          value={dueToday}
+          note="Scheduled for today"
+          icon={CalendarClock}
+        />
+        <MetricCard
+          label="High priority"
+          value={highPriority}
+          note="Open high-score leads"
+          icon={Target}
+        />
+        <MetricCard
+          label="Completed today"
+          value={completedToday}
+          note="Saved completion records"
+          icon={Check}
+        />
       </div>
       <section className="panel" style={{ marginBottom: 18 }}>
         <div className="lead-toolbar">
-          <div className="filter-box"><Filter size={16} /><select aria-label="Filter action center" value={filter} onChange={(e) => setFilter(e.target.value)}>
-            <option>All actions</option><option>Overdue</option><option>Due today</option><option>High priority</option><option>Unassigned</option><option>Completed</option>
-          </select></div>
-          <span className="result-count">{visible.length} actions · {unassigned} unassigned</span>
+          <div className="filter-box">
+            <Filter size={16} />
+            <select
+              aria-label="Filter action center"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            >
+              <option>All actions</option>
+              <option>Overdue</option>
+              <option>Due today</option>
+              <option>High priority</option>
+              <option>Unassigned</option>
+              <option>Completed</option>
+            </select>
+          </div>
+          <span className="result-count">
+            {visible.length} actions · {unassigned} unassigned
+          </span>
         </div>
       </section>
-      {error && <div className="error-banner"><AlertCircle size={17} /><span>{error}</span></div>}
-      {loading ? <div className="loading"><span className="spinner" /> Loading action queue…</div> : visible.length === 0 ? (
-        <div className="panel empty-state"><ClipboardCheck size={26} /><strong>No actions in this view</strong><span>Try another filter or schedule a follow-up for an active lead.</span></div>
-      ) : <div style={{ display: "grid", gap: 14 }}>
-        {visible.map((task) => {
-          const isOverdue = !!task.nextFollowUpUtc && new Date(task.nextFollowUpUtc) < now && !task.isCompleted;
-          const defaultLocal = task.nextFollowUpUtc ? new Date(new Date(task.nextFollowUpUtc).getTime() - new Date(task.nextFollowUpUtc).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
-          return <section className="panel" key={task.leadId}>
-            <div className="panel-heading" style={{ alignItems: "flex-start" }}>
-              <div>
-                <span className="eyebrow">{task.projectName} · {task.priority} priority</span>
-                <h3>{task.fullName}</h3>
-                <p>Owner: {task.assignedTo || "Unassigned"} · Stage: {displayStatus(task.status)}</p>
-                <small>{task.nextFollowUpUtc ? `Follow-up: ${dateLabel(task.nextFollowUpUtc)}` : "No follow-up scheduled"}</small>
-              </div>
-              <div style={{ textAlign: "right", minWidth: 76 }}>
-                <div className="score-cell"><div className="score-ring" style={{ "--score": `${task.score}%` } as React.CSSProperties}><span>{task.score}</span></div><span>score</span></div>
-                {task.isCompleted ? <span className="tiny-pill">Completed</span> : isOverdue ? <span className="tiny-pill">Overdue</span> : null}
-              </div>
-            </div>
-            {task.isCompleted && task.completedAtUtc && <p style={{ margin: "8px 0", color: "var(--muted, #64748b)" }}>Completed by {task.completedByName || "workspace user"} · {new Date(task.completedAtUtc).toLocaleString("en-IN")}</p>}
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 14 }}>
-              <button className="secondary-btn" onClick={() => onViewLead(task.leadId)}><Users size={15} /> View lead</button>
-              {canWrite && !task.isCompleted && task.nextFollowUpUtc && <button className="primary-btn" disabled={busyIds.includes(task.leadId)} onClick={() => onComplete(task)}><Check size={15} /> {busyIds.includes(task.leadId) ? "Saving…" : "Mark complete"}</button>}
-              {canWrite && !task.isCompleted && <>
-                <input aria-label={`Next follow-up for ${task.fullName}`} type="datetime-local" value={scheduleValues[task.leadId] ?? defaultLocal} onChange={(e) => setScheduleValues((old) => ({ ...old, [task.leadId]: e.target.value }))} style={{ minWidth: 210, padding: "9px 10px", border: "1px solid var(--border, #dbe2ea)", borderRadius: 8, background: "var(--surface, white)", color: "inherit" }} />
-                <button className="secondary-btn" disabled={busyIds.includes(task.leadId) || !(scheduleValues[task.leadId] ?? defaultLocal)} onClick={() => onSchedule(task.leadId, scheduleValues[task.leadId] ?? defaultLocal)}><Clock size={15} /> Schedule follow-up</button>
-              </>}
-            </div>
-          </section>;
-        })}
-      </div>}
-      <div className="panel-footnote" style={{ marginTop: 16 }}>Completion and scheduling are recorded by the API. Priority continues to use the existing deterministic lead-scoring formula.</div>
+      {error && (
+        <div className="error-banner">
+          <AlertCircle size={17} />
+          <span>{error}</span>
+        </div>
+      )}
+      {loading ? (
+        <div className="loading">
+          <span className="spinner" /> Loading action queue…
+        </div>
+      ) : visible.length === 0 ? (
+        <div className="panel empty-state">
+          <ClipboardCheck size={26} />
+          <strong>No actions in this view</strong>
+          <span>
+            Try another filter or schedule a follow-up for an active lead.
+          </span>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 14 }}>
+          {visible.map((task) => {
+            const isOverdue =
+              !!task.nextFollowUpUtc &&
+              new Date(task.nextFollowUpUtc) < now &&
+              !task.isCompleted;
+            const defaultLocal = task.nextFollowUpUtc
+              ? new Date(
+                  new Date(task.nextFollowUpUtc).getTime() -
+                    new Date(task.nextFollowUpUtc).getTimezoneOffset() * 60000,
+                )
+                  .toISOString()
+                  .slice(0, 16)
+              : "";
+            return (
+              <section className="panel" key={task.leadId}>
+                <div
+                  className="panel-heading"
+                  style={{ alignItems: "flex-start" }}
+                >
+                  <div>
+                    <span className="eyebrow">
+                      {task.projectName} · {task.priority} priority
+                    </span>
+                    <h3>{task.fullName}</h3>
+                    <p>
+                      Owner: {task.assignedTo || "Unassigned"} · Stage:{" "}
+                      {displayStatus(task.status)}
+                    </p>
+                    <small>
+                      {task.nextFollowUpUtc
+                        ? `Follow-up: ${dateLabel(task.nextFollowUpUtc)}`
+                        : "No follow-up scheduled"}
+                    </small>
+                  </div>
+                  <div style={{ textAlign: "right", minWidth: 76 }}>
+                    <div className="score-cell">
+                      <div
+                        className="score-ring"
+                        style={
+                          { "--score": `${task.score}%` } as React.CSSProperties
+                        }
+                      >
+                        <span>{task.score}</span>
+                      </div>
+                      <span>score</span>
+                    </div>
+                    {task.isCompleted ? (
+                      <span className="tiny-pill">Completed</span>
+                    ) : isOverdue ? (
+                      <span className="tiny-pill">Overdue</span>
+                    ) : null}
+                  </div>
+                </div>
+                {task.isCompleted && task.completedAtUtc && (
+                  <p
+                    style={{ margin: "8px 0", color: "var(--muted, #64748b)" }}
+                  >
+                    Completed by {task.completedByName || "workspace user"} ·{" "}
+                    {new Date(task.completedAtUtc).toLocaleString("en-IN")}
+                  </p>
+                )}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    marginTop: 14,
+                  }}
+                >
+                  <button
+                    className="secondary-btn"
+                    onClick={() => onViewLead(task.leadId)}
+                  >
+                    <Users size={15} /> View lead
+                  </button>
+                  {canWrite && !task.isCompleted && task.nextFollowUpUtc && (
+                    <button
+                      className="primary-btn"
+                      disabled={busyIds.includes(task.leadId)}
+                      onClick={() => onComplete(task)}
+                    >
+                      <Check size={15} />{" "}
+                      {busyIds.includes(task.leadId)
+                        ? "Saving…"
+                        : "Mark complete"}
+                    </button>
+                  )}
+                  {canWrite && !task.isCompleted && (
+                    <>
+                      <input
+                        aria-label={`Next follow-up for ${task.fullName}`}
+                        type="datetime-local"
+                        value={scheduleValues[task.leadId] ?? defaultLocal}
+                        onChange={(e) =>
+                          setScheduleValues((old) => ({
+                            ...old,
+                            [task.leadId]: e.target.value,
+                          }))
+                        }
+                        style={{
+                          minWidth: 210,
+                          padding: "9px 10px",
+                          border: "1px solid var(--border, #dbe2ea)",
+                          borderRadius: 8,
+                          background: "var(--surface, white)",
+                          color: "inherit",
+                        }}
+                      />
+                      <button
+                        className="secondary-btn"
+                        disabled={
+                          busyIds.includes(task.leadId) ||
+                          !(scheduleValues[task.leadId] ?? defaultLocal)
+                        }
+                        onClick={() =>
+                          onSchedule(
+                            task.leadId,
+                            scheduleValues[task.leadId] ?? defaultLocal,
+                          )
+                        }
+                      >
+                        <Clock size={15} /> Schedule follow-up
+                      </button>
+                    </>
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      )}
+      <div className="panel-footnote" style={{ marginTop: 16 }}>
+        Completion and scheduling are recorded by the API. Priority continues to
+        use the existing deterministic lead-scoring formula.
+      </div>
     </>
   );
 }

@@ -157,6 +157,34 @@ namespace MigsunSales.Api.Migrations
                     b.ToTable("Leads");
                 });
 
+            modelBuilder.Entity("MigsunSales.Api.LeadStatusHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ChangedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ChangedBy")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<Guid>("LeadId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LeadId", "ChangedAtUtc");
+
+                    b.ToTable("LeadStatusHistory");
+                });
+
             modelBuilder.Entity("MigsunSales.Api.RecommendationReview", b =>
                 {
                     b.Property<Guid>("Id")
@@ -200,6 +228,17 @@ namespace MigsunSales.Api.Migrations
                 });
 
             modelBuilder.Entity("MigsunSales.Api.FollowUpAction", b =>
+                {
+                    b.HasOne("MigsunSales.Api.Lead", "Lead")
+                        .WithMany()
+                        .HasForeignKey("LeadId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Lead");
+                });
+
+            modelBuilder.Entity("MigsunSales.Api.LeadStatusHistory", b =>
                 {
                     b.HasOne("MigsunSales.Api.Lead", "Lead")
                         .WithMany()
